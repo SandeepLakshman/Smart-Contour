@@ -1,3 +1,4 @@
+import fs from "fs";
 import dotenv from "dotenv";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -9,6 +10,9 @@ function requiredMissing(keys) {
   return keys.filter((key) => !process.env[key] || String(process.env[key]).trim() === "");
 }
 
+const localKnowledgeDir = path.resolve(__dirname, "../knowledge/documents");
+const rootKnowledgeDir = path.resolve(__dirname, "../../knowledge/documents");
+
 export const config = {
   port: Number(process.env.PORT || 4000),
   corsOrigin: process.env.CORS_ORIGIN || "http://localhost:5173",
@@ -19,7 +23,7 @@ export const config = {
     privateKey: (process.env.FIREBASE_PRIVATE_KEY || "").replace(/\\n/g, "\n"),
   },
   geminiApiKey: process.env.GEMINI_API_KEY || "",
-  knowledgeDir: path.resolve(__dirname, "../../knowledge/documents"),
+  knowledgeDir: fs.existsSync(localKnowledgeDir) ? localKnowledgeDir : rootKnowledgeDir,
 };
 
 export function credentialStatus() {

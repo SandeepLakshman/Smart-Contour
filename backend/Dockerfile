@@ -6,8 +6,9 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci --only=production --no-audit --no-fund || npm install --only=production --no-audit --no-fund
 
-# Copy source code and knowledge data
+# Copy source code, RAG knowledge documents, and pre-computed embeddings
 COPY src/ ./src/
+COPY knowledge/ ./knowledge/
 COPY data/ ./data/
 COPY serviceAccount.json* ./
 

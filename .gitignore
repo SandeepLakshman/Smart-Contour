@@ -7,8 +7,6 @@ backend/.env
 frontend/.env
 backend/serviceAccount.json
 *serviceAccount*.json
-backend/data/
-data/
 backend/generated/
 frontend/.vite/
 *.pdf
