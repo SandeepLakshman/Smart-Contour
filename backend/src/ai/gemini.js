@@ -10,7 +10,25 @@ export function geminiStatus() {
   };
 }
 
-export async function generateGeminiResponse({ system, user }) {
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function isRetryableError(error) {
+  if (!error) return false;
+  const status = error.status || error.statusCode || error.response?.status;
+  if (status === 503 || status === 429) return true;
+  const msg = String(error.message || "");
+  return (
+    msg.includes("503") ||
+    msg.includes("429") ||
+    /overloaded/i.test(msg) ||
+    /resource has been exhausted/i.test(msg) ||
+    /service unavailable/i.test(msg) ||
+    /high demand/i.test(msg) ||
+    /rate limit/i.test(msg)
+  );
+}
+
+export async function generateGeminiResponse({ system, user }, maxRetries = 3) {
   if (!config.geminiApiKey) {
     const error = new Error("GEMINI_API_KEY is missing");
     error.code = "MISSING_GEMINI";
@@ -22,8 +40,29 @@ export async function generateGeminiResponse({ system, user }) {
     model: MODEL_NAME,
     systemInstruction: system,
   });
-  const result = await model.generateContent(user);
-  return result.response.text();
+
+  let lastError;
+  let delayMs = 1000;
+
+  for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+    try {
+      const result = await model.generateContent(user);
+      return result.response.text();
+    } catch (err) {
+      lastError = err;
+      if (attempt < maxRetries && isRetryableError(err)) {
+        console.warn(
+          `[Gemini] Transient error (${err.message}). Retrying ${attempt + 1}/${maxRetries} after ${delayMs}ms...`
+        );
+        await sleep(delayMs);
+        delayMs *= 2;
+        continue;
+      }
+      throw err;
+    }
+  }
+
+  throw lastError;
 }
 
 export function parseAssistantSections(text) {
