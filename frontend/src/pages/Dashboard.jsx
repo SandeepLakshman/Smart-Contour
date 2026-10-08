@@ -71,7 +71,7 @@ export default function Dashboard() {
           <span className={`h-2.5 w-2.5 rounded-full ${backendOk ? "bg-emerald-500" : "bg-rose-500"}`} />
           <div>
             <span className="text-[10px] text-stone-500 font-bold uppercase tracking-wider block">Express Backend</span>
-            <span className="font-semibold text-deep">{backendOk ? "Connected (:5000)" : "Disconnected"}</span>
+            <span className="font-semibold text-deep">{backendOk ? "Connected" : "Disconnected"}</span>
           </div>
         </div>
 
@@ -114,7 +114,7 @@ export default function Dashboard() {
             <div className="my-8">
               <EmptyState
                 title="Waiting for ESP32 data"
-                body="Flash the ESP32 and send pressure data to http://192.168.0.159:5000/api/sensor-data, or switch to DEMO SIMULATION to preview."
+                body="Flash the ESP32 and send pressure data to /api/sensor-data (Cloud: https://smart-contour.onrender.com/api/sensor-data or Local: http://192.168.0.159:5000/api/sensor-data), or switch to DEMO SIMULATION to preview."
               />
             </div>
           ) : (

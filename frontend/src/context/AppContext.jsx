@@ -9,7 +9,10 @@ import {
 
 const AppContext = createContext(null);
 
-const WS_URL = import.meta.env.VITE_WS_URL || `ws://${window.location.hostname}:4000`;
+const defaultWs = import.meta.env.PROD
+  ? "wss://smart-contour.onrender.com"
+  : `ws://${window.location.hostname}:5000`;
+const WS_URL = import.meta.env.VITE_WS_URL || defaultWs;
 
 function demoTick(prev = {}) {
   const wander = (v, baseVal) => {
@@ -85,7 +88,7 @@ export function AppProvider({ children }) {
       setError("");
     } catch (err) {
       setBackendOk(false);
-      setError("Cannot reach backend server. Make sure port 4000 is running.");
+      setError("Cannot reach backend server. Make sure the SmartContour backend is running.");
     }
   }
 

@@ -2,7 +2,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../services/api";
 import { analysisFromSensors, DEFAULT_THRESHOLDS, emptySensors } from "../utils/pressure";
 
-const WS_URL = import.meta.env.VITE_WS_URL || `ws://${window.location.hostname}:4000`;
+const defaultWs = import.meta.env.PROD
+  ? "wss://smart-contour.onrender.com"
+  : `ws://${window.location.hostname}:5000`;
+const WS_URL = import.meta.env.VITE_WS_URL || defaultWs;
 
 function demoTick(prev) {
   const wander = (v, bias) => {

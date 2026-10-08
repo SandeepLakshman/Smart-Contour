@@ -1,4 +1,8 @@
-const API = import.meta.env.VITE_API_URL || "";
+const API =
+  import.meta.env.VITE_API_URL ||
+  (import.meta.env.PROD
+    ? "https://smart-contour.onrender.com"
+    : "http://localhost:5000");
 
 async function request(path, options = {}) {
   const res = await fetch(`${API}${path}`, {

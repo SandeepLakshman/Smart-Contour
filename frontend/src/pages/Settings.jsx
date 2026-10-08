@@ -85,7 +85,7 @@ export default function Settings() {
               label="Backend"
               status={sys.backend || "Connected"}
               isOk={sys.backend === "Connected"}
-              hint="Express API & WebSocket streaming (:5000)"
+              hint="Express API & WebSocket streaming"
             />
 
             {/* Firebase */}
