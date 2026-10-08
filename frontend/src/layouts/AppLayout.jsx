@@ -80,7 +80,7 @@ export default function AppLayout() {
               Clinical Fitting Workspace
             </div>
             <div className="font-display text-2xl font-bold text-deep mt-0.5">
-              {activeSession ? activeSession.patientName : "Sandeep Lakshman (Demo Patient)"}
+              SmartContour Team
             </div>
             <div className="text-[11px] text-stone-500 italic">
               Prototype Engineering Demonstration · Not an Official Medical Record
