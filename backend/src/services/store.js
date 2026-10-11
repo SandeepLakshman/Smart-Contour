@@ -154,19 +154,28 @@ export async function addPatient(patient) {
   return patient;
 }
 
-export async function listPatients() {
+export async function listPatients({ clinicianId } = {}) {
   if (hasDb()) {
     try {
+      let query = getDb().collection("patients");
+      if (clinicianId) {
+        query = query.where("clinicianId", "==", clinicianId);
+      }
       const snap = await Promise.race([
-        getDb().collection("patients").orderBy("createdAt", "desc").get(),
+        query.get(),
         new Promise((_, rej) => setTimeout(() => rej(new Error("Timeout")), 2500)),
       ]);
       if (snap && snap.docs) {
-        return snap.docs.map((d) => d.data());
+        let list = snap.docs.map((d) => d.data());
+        return list.sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
       }
     } catch (e) {}
   }
-  return [...memory.patients.values()].sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
+  let list = [...memory.patients.values()];
+  if (clinicianId) {
+    list = list.filter((p) => p.clinicianId === clinicianId);
+  }
+  return list.sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
 }
 
 export async function getPatient(id) {
@@ -216,12 +225,13 @@ export async function addSession(session) {
   return session;
 }
 
-export async function listSessions({ patientId } = {}) {
+export async function listSessions({ patientId, clinicianId } = {}) {
   let allSessions = [];
   if (hasDb()) {
     try {
       let query = getDb().collection("sessions");
       if (patientId) query = query.where("patientId", "==", patientId);
+      if (clinicianId) query = query.where("clinicianId", "==", clinicianId);
       const snap = await Promise.race([
         query.get(),
         new Promise((_, rej) => setTimeout(() => rej(new Error("Timeout")), 2500)),
@@ -235,6 +245,9 @@ export async function listSessions({ patientId } = {}) {
     allSessions = [...memory.sessions.values()];
     if (patientId) {
       allSessions = allSessions.filter((s) => s.patientId === patientId);
+    }
+    if (clinicianId) {
+      allSessions = allSessions.filter((s) => s.clinicianId === clinicianId);
     }
   }
   return allSessions.sort((a, b) => String(b.startTime || "").localeCompare(String(a.startTime || "")));

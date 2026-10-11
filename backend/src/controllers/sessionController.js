@@ -33,13 +33,17 @@ export async function createSession(req, res) {
 
 export async function getSessions(req, res) {
   const patientId = req.query?.patientId || undefined;
-  const sessions = await listSessions({ patientId });
+  const clinicianId = req.user?.uid || undefined;
+  const sessions = await listSessions({ patientId, clinicianId });
   return res.json({ success: true, sessions });
 }
 
 export async function getSessionById(req, res) {
   const session = await getSession(req.params.id);
   if (!session) return res.status(404).json({ success: false, error: "Session not found" });
+  if (session.clinicianId && req.user?.uid && session.clinicianId !== req.user.uid) {
+    return res.status(403).json({ success: false, error: "Access denied to session" });
+  }
   const settings = await getSettings();
   const readings = await listReadings({ sessionId: session.id, limit: 800 });
   const stats = summarizeReadings(readings, settings.thresholds);
