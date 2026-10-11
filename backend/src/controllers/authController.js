@@ -147,6 +147,24 @@ export async function register(req, res) {
     users.set(cleanEmail, user);
     saveUsers(users);
 
+    // Persist user record to Cloud Firestore if connected
+    if (admin.apps.length) {
+      try {
+        const db = admin.firestore();
+        await db.collection("clinicians").doc(user.uid).set({
+          uid: user.uid,
+          email: user.email,
+          displayName: user.displayName,
+          role: user.role,
+          salt: user.salt,
+          hash: user.hash,
+          createdAt: user.createdAt,
+        }, { merge: true });
+      } catch (dbErr) {
+        console.warn("[Auth] Cloud Firestore clinician save notice:", dbErr.message);
+      }
+    }
+
     const token = createToken({
       uid: user.uid,
       email: user.email,
@@ -180,7 +198,16 @@ export async function login(req, res) {
 
     const cleanEmail = String(email).trim().toLowerCase();
     const users = loadUsers();
-    const user = users.get(cleanEmail);
+    let user = users.get(cleanEmail);
+    if (!user && admin.apps.length) {
+      try {
+        const snap = await admin.firestore().collection("clinicians").where("email", "==", cleanEmail).limit(1).get();
+        if (!snap.empty) {
+          user = snap.docs[0].data();
+          users.set(cleanEmail, user);
+        }
+      } catch (fErr) {}
+    }
 
     if (!user) {
       return res.status(401).json({ success: false, error: "Invalid email or password" });

@@ -8,30 +8,10 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = path.resolve(__dirname, "../../data");
 const STORE_FILE = path.join(DATA_DIR, "store.json");
 
-const defaultPatient = {
-  id: "patient-sandeep-01",
-  name: "Sandeep Lakshman",
-  age: 38,
-  notes: "Prototype socket contour assessment · Transtibial fitting support",
-  createdAt: new Date().toISOString(),
-  updatedAt: new Date().toISOString(),
-};
-
-const defaultSession = {
-  id: "session-smartcontour-01",
-  patientId: "patient-sandeep-01",
-  patientName: "Sandeep Lakshman",
-  clinician: "Dr. Priya Sharma · Demo Clinician",
-  deviceId: "SMARTCONTOUR-001",
-  startTime: new Date(Date.now() - 3600000).toISOString(),
-  endTime: null,
-  status: "active",
-};
-
-// In-memory cache + persistent backing
+// Clean in-memory cache + persistent backing
 const memory = {
-  patients: new Map([[defaultPatient.id, defaultPatient]]),
-  sessions: new Map([[defaultSession.id, defaultSession]]),
+  patients: new Map(),
+  sessions: new Map(),
   readings: [],
   recommendations: [],
   reports: [],

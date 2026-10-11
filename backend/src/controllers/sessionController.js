@@ -20,6 +20,8 @@ export async function createSession(req, res) {
     id: uuid(),
     patientId: patient.id,
     patientName: patient.name,
+    clinicianId: req.user?.uid || null,
+    clinician: req.user?.displayName || req.user?.email || "Attending Clinician",
     deviceId: deviceId || settings.defaultDeviceId || "SMARTCONTOUR-001",
     startTime: new Date().toISOString(),
     endTime: null,

@@ -39,10 +39,10 @@ export function AppProvider({ children }) {
   const [patients, setPatients] = useState([]);
   const [sessions, setSessions] = useState([]);
   const [selectedPatientId, setSelectedPatientId] = useState(() => {
-    return typeof window !== "undefined" ? localStorage.getItem("smartcontour_patient_id") || "patient-sandeep-01" : "patient-sandeep-01";
+    return typeof window !== "undefined" ? localStorage.getItem("smartcontour_patient_id") || null : null;
   });
   const [selectedSessionId, setSelectedSessionId] = useState(() => {
-    return typeof window !== "undefined" ? localStorage.getItem("smartcontour_session_id") || "session-smartcontour-01" : "session-smartcontour-01";
+    return typeof window !== "undefined" ? localStorage.getItem("smartcontour_session_id") || null : null;
   });
   const [recommendations, setRecommendations] = useState([]);
   const [error, setError] = useState("");
@@ -50,11 +50,13 @@ export function AppProvider({ children }) {
 
   // Derive active selected patient & session
   const selectedPatient = useMemo(() => {
-    return patients.find((p) => p.id === selectedPatientId) || patients[0] || null;
+    if (!selectedPatientId) return null;
+    return patients.find((p) => p.id === selectedPatientId) || null;
   }, [patients, selectedPatientId]);
 
   const selectedSession = useMemo(() => {
-    return sessions.find((s) => s.id === selectedSessionId) || sessions[0] || null;
+    if (!selectedSessionId) return null;
+    return sessions.find((s) => s.id === selectedSessionId) || null;
   }, [sessions, selectedSessionId]);
 
   // Compute live analysis from current reading

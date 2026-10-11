@@ -6,11 +6,13 @@ export async function createPatient(req, res) {
   if (!name || String(name).trim() === "") {
     return res.status(400).json({ success: false, error: "Patient name is required" });
   }
+  const clinicianId = req.user?.uid || "unassigned";
   const patient = {
     id: uuid(),
     name: String(name).trim(),
     age: age === undefined || age === "" ? null : Number(age),
     notes: notes ? String(notes).slice(0, 500) : "",
+    clinicianId,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
@@ -18,7 +20,7 @@ export async function createPatient(req, res) {
   return res.status(201).json({ success: true, patient });
 }
 
-export async function getPatients(_req, res) {
+export async function getPatients(req, res) {
   const patients = await listPatients();
   return res.json({ success: true, patients });
 }

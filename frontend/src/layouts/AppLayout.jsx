@@ -119,6 +119,7 @@ export default function AppLayout() {
                 onChange={(e) => selectPatient(e.target.value)}
                 className="bg-transparent font-semibold text-deep focus:outline-none cursor-pointer"
               >
+                {!selectedPatientId && <option value="">No patient selected</option>}
                 {patients.length ? (
                   patients.map((p) => (
                     <option key={p.id} value={p.id}>
@@ -126,7 +127,9 @@ export default function AppLayout() {
                     </option>
                   ))
                 ) : (
-                  <option value="patient-sandeep-01">Sandeep Lakshman</option>
+                  <option value="" disabled>
+                    {isAuthenticated ? "No patients registered" : "Sign in to view patients"}
+                  </option>
                 )}
               </select>
             </div>
@@ -139,14 +142,17 @@ export default function AppLayout() {
                 onChange={(e) => selectSession(e.target.value)}
                 className="bg-transparent font-semibold text-deep focus:outline-none cursor-pointer"
               >
+                {!selectedSessionId && <option value="">No session selected</option>}
                 {sessions.length ? (
                   sessions.map((s) => (
                     <option key={s.id} value={s.id}>
-                      {s.id.slice(0, 14)} {s.status === "active" ? "(Live)" : "(Done)"}
+                      {s.patientName || s.id.slice(0, 10)} · {s.status === "active" ? "Live" : "Done"}
                     </option>
                   ))
                 ) : (
-                  <option value="session-smartcontour-01">Default Session</option>
+                  <option value="" disabled>
+                    {isAuthenticated ? "No sessions recorded" : "Sign in to view sessions"}
+                  </option>
                 )}
               </select>
             </div>
