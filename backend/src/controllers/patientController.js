@@ -2,15 +2,42 @@ import { v4 as uuid } from "uuid";
 import { addPatient, getPatient, listPatients, updatePatient } from "../services/store.js";
 
 export async function createPatient(req, res) {
-  const { name, age, notes } = req.body || {};
-  if (!name || String(name).trim() === "") {
-    return res.status(400).json({ success: false, error: "Patient name is required" });
+  const { name, age, notes, confirmDuplicate } = req.body || {};
+  const trimmedName = String(name || "").trim();
+  if (!trimmedName || trimmedName.length < 2) {
+    return res.status(400).json({ success: false, error: "Patient name must be at least 2 characters" });
   }
+
+  let parsedAge = null;
+  if (age !== undefined && age !== null && age !== "") {
+    parsedAge = Number(age);
+    if (!Number.isInteger(parsedAge) || parsedAge < 0 || parsedAge > 125) {
+      return res.status(400).json({ success: false, error: "Age must be an integer between 0 and 125" });
+    }
+  }
+
   const clinicianId = req.user?.uid || "unassigned";
+
+  // Check for duplicate patient name under the same clinician (case-normalized)
+  const existingPatients = await listPatients({ clinicianId });
+  const normalizedNewName = trimmedName.toLowerCase().replace(/\s+/g, " ");
+  const duplicate = existingPatients.find(
+    (p) => String(p.name || "").trim().toLowerCase().replace(/\s+/g, " ") === normalizedNewName
+  );
+
+  if (duplicate && !confirmDuplicate) {
+    return res.status(409).json({
+      success: false,
+      isDuplicateWarning: true,
+      error: `A patient named "${duplicate.name}" (ID: ${duplicate.id.slice(0, 8)}) is already registered in your clinic records.`,
+      duplicatePatientId: duplicate.id,
+    });
+  }
+
   const patient = {
     id: uuid(),
-    name: String(name).trim(),
-    age: age === undefined || age === "" ? null : Number(age),
+    name: trimmedName,
+    age: parsedAge,
     notes: notes ? String(notes).slice(0, 500) : "",
     clinicianId,
     createdAt: new Date().toISOString(),

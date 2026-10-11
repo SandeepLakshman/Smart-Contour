@@ -9,17 +9,47 @@ export default function Patients() {
   const [selected, setSelected] = useState(null);
   const [busy, setBusy] = useState(false);
   const [localError, setLocalError] = useState("");
+  const [duplicateWarning, setDuplicateWarning] = useState(null);
 
-  async function create(e) {
-    e.preventDefault();
-    setBusy(true);
+  function validate(data) {
+    if (!data.name || typeof data.name !== "string" || data.name.trim().length < 2) {
+      return "Patient name must be at least 2 characters.";
+    }
+    if (data.age !== "" && data.age !== undefined && data.age !== null) {
+      const parsedAge = Number(data.age);
+      if (!Number.isInteger(parsedAge) || parsedAge < 0 || parsedAge > 125) {
+        return "Age must be an integer between 0 and 125.";
+      }
+    }
+    return null;
+  }
+
+  async function create(e, forceDuplicate = false) {
+    if (e && e.preventDefault) e.preventDefault();
     setLocalError("");
+    const validationError = validate(form);
+    if (validationError) {
+      setLocalError(validationError);
+      return;
+    }
+    setBusy(true);
     try {
-      await api.createPatient(form);
+      const payload = {
+        name: form.name.trim(),
+        age: form.age === "" ? null : Number(form.age),
+        notes: form.notes,
+        confirmDuplicate: forceDuplicate,
+      };
+      await api.createPatient(payload);
       setForm({ name: "", age: "", notes: "" });
+      setDuplicateWarning(null);
       await refreshPatients();
     } catch (err) {
-      setLocalError(err.message);
+      if (err.data?.isDuplicateWarning) {
+        setDuplicateWarning(err.data.error || "A patient with this name already exists.");
+      } else {
+        setLocalError(err.message);
+      }
     } finally {
       setBusy(false);
     }
@@ -27,9 +57,19 @@ export default function Patients() {
 
   async function save() {
     if (!selected) return;
+    setLocalError("");
+    const validationError = validate(selected);
+    if (validationError) {
+      setLocalError(validationError);
+      return;
+    }
     setBusy(true);
     try {
-      await api.updatePatient(selected.id, selected);
+      await api.updatePatient(selected.id, {
+        name: selected.name.trim(),
+        age: selected.age === "" || selected.age === null ? null : Number(selected.age),
+        notes: selected.notes,
+      });
       await refreshPatients();
     } catch (err) {
       setLocalError(err.message);
@@ -94,6 +134,29 @@ export default function Patients() {
           <Field label="Patient name" value={form.name} onChange={(v) => setForm({ ...form, name: v })} />
           <Field label="Age" value={form.age} onChange={(v) => setForm({ ...form, age: v })} />
           <Field label="Notes" value={form.notes} onChange={(v) => setForm({ ...form, notes: v })} />
+          {duplicateWarning && (
+            <div className="rounded-2xl bg-amber-50 border border-amber-200 p-4 text-xs text-amber-900 space-y-2">
+              <p className="font-semibold">{duplicateWarning}</p>
+              <p>Are you sure you want to register another patient with the same name?</p>
+              <div className="flex gap-2 pt-1">
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={(e) => create(e, true)}
+                  className="rounded-full bg-amber-700 hover:bg-amber-800 text-white px-3 py-1 text-xs font-semibold"
+                >
+                  Yes, register patient
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDuplicateWarning(null)}
+                  className="rounded-full bg-stone-200 hover:bg-stone-300 text-stone-800 px-3 py-1 text-xs"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
           {localError && <p className="text-sm text-terracotta">{localError}</p>}
           <button disabled={busy} className="rounded-full bg-deep px-5 py-2 text-sm text-ivory">
             {busy ? "Saving…" : "Add patient"}

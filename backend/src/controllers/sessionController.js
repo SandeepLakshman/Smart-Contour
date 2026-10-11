@@ -15,16 +15,36 @@ export async function createSession(req, res) {
   if (!patientId) return res.status(400).json({ success: false, error: "patientId is required" });
   const patient = await getPatient(patientId);
   if (!patient) return res.status(404).json({ success: false, error: "Patient not found" });
+  if (patient.clinicianId && req.user?.uid && patient.clinicianId !== req.user.uid) {
+    return res.status(403).json({ success: false, error: "Access denied to patient" });
+  }
+
   const settings = await getSettings();
+  const targetDevice = deviceId || settings.defaultDeviceId || "SMARTCONTOUR-001";
+  const clinicianId = req.user?.uid || null;
+
+  // Concurrency-safe check: prevent duplicate active session for the same patient or same device
+  const existingSessions = await listSessions({ patientId: patient.id });
+  const alreadyActive = existingSessions.find((s) => s.status === "active");
+  if (alreadyActive) {
+    return res.status(409).json({
+      success: false,
+      isConflict: true,
+      error: `Patient already has an active session (${alreadyActive.id.slice(0, 8)}) in progress. Please complete or activate the existing session.`,
+      activeSessionId: alreadyActive.id,
+    });
+  }
+
   const session = {
     id: uuid(),
     patientId: patient.id,
     patientName: patient.name,
-    clinicianId: req.user?.uid || null,
+    clinicianId,
     clinician: req.user?.displayName || req.user?.email || "Attending Clinician",
-    deviceId: deviceId || settings.defaultDeviceId || "SMARTCONTOUR-001",
+    deviceId: targetDevice,
     startTime: new Date().toISOString(),
     endTime: null,
+    durationMs: null,
     status: "active",
   };
   await addSession(session);
@@ -47,7 +67,10 @@ export async function getSessionById(req, res) {
   const settings = await getSettings();
   const readings = await listReadings({ sessionId: session.id, limit: 800 });
   const stats = summarizeReadings(readings, settings.thresholds);
-  const durationMs = (session.endTime ? new Date(session.endTime) : new Date()) - new Date(session.startTime);
+  const end = session.endTime ? new Date(session.endTime) : new Date();
+  const start = new Date(session.startTime);
+  const durationMs = Math.max(0, end.getTime() - start.getTime());
+
   return res.json({
     success: true,
     session: {
@@ -63,10 +86,24 @@ export async function getSessionById(req, res) {
 }
 
 export async function endSession(req, res) {
+  const existing = await getSession(req.params.id);
+  if (!existing) return res.status(404).json({ success: false, error: "Session not found" });
+  if (existing.clinicianId && req.user?.uid && existing.clinicianId !== req.user.uid) {
+    return res.status(403).json({ success: false, error: "Access denied to session" });
+  }
+  if (existing.status === "completed") {
+    return res.json({ success: true, session: existing, message: "Session was already completed" });
+  }
+
+  const endTimestamp = new Date().toISOString();
+  const startTimestamp = new Date(existing.startTime);
+  const durationMs = Math.max(0, new Date(endTimestamp).getTime() - startTimestamp.getTime());
+
   const session = await updateSession(req.params.id, {
     status: "completed",
-    endTime: new Date().toISOString(),
+    endTime: endTimestamp,
+    durationMs,
   });
-  if (!session) return res.status(404).json({ success: false, error: "Session not found" });
+
   return res.json({ success: true, session });
 }

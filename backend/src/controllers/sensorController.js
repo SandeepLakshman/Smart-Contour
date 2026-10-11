@@ -30,11 +30,20 @@ export async function ingestSensorData(req, res) {
       ? await getSession(sessionId)
       : await getActiveSessionForDevice(deviceId, patientId);
 
+    // If an explicit session was passed but has already ended, do not append readings to it
+    if (sessionId && session && session.status !== "active") {
+      console.warn(`[Sensor] Rejected reading for completed session ${sessionId}`);
+      return res.status(409).json({
+        success: false,
+        error: `Session ${sessionId} has been completed. Readings cannot be appended to completed sessions.`,
+      });
+    }
+
     const reading = {
       id: uuid(),
       deviceId,
-      sessionId: session?.id || null,
-      patientId: session?.patientId || null,
+      sessionId: session?.status === "active" ? session.id : null,
+      patientId: session?.status === "active" ? session.patientId : (patientId || null),
       timestamp: timestamp ?? Date.now(),
       serverTimestamp: new Date().toISOString(),
       sensors: analyzed.sensors,
