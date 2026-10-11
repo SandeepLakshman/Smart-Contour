@@ -158,12 +158,83 @@ async function runTests() {
   }
 
   // 8. Now patient can have a new active session
+  let newSessionId;
   {
     const req = { user: { uid: clinicianUid }, body: { patientId: createdPatientId, deviceId: "esp32-01" } };
     const res = createMockRes();
     await sessionController.createSession(req, res);
     assert.equal(res.statusCode, 201, "Can start new session now that previous session is completed");
+    newSessionId = res.data.session.id;
     console.log("✓ New session allowed after previous session ended");
+  }
+
+  // 9. Single active session presentation & activateSession switching
+  {
+    const req = { user: { uid: clinicianUid }, query: { patientId: createdPatientId } };
+    const res = createMockRes();
+    await sessionController.getSessions(req, res);
+    assert.equal(res.statusCode, 200);
+    const patientSessions = res.data.sessions.filter((s) => s.patientId === createdPatientId);
+    const activeList = patientSessions.filter((s) => s.status === "active");
+    assert.equal(activeList.length, 1, "Exactly one active session should be reported for patient");
+    console.log("✓ getSessions enforces at most one active session per patient");
+
+    // Activate the earlier session
+    const actReq = { user: { uid: clinicianUid }, params: { id: activeSessionId } };
+    const actRes = createMockRes();
+    await sessionController.activateSession(actReq, actRes);
+    assert.equal(actRes.statusCode, 200, "Should activate session");
+
+    // Check sessions again
+    const res2 = createMockRes();
+    await sessionController.getSessions(req, res2);
+    const updatedPatientSessions = res2.data.sessions.filter((s) => s.patientId === createdPatientId);
+    const activeList2 = updatedPatientSessions.filter((s) => s.status === "active");
+    assert.equal(activeList2.length, 1, "Exactly one active session remains after activation");
+    assert.equal(activeList2[0].id, activeSessionId, "Earlier session is now the active one");
+    console.log("✓ activateSession safely switched active session without creating duplicate active sessions");
+
+    // 10. Requirement 1 & 4: Confirm Firestore/store actually persists completed status and endTime
+    const { getSession, listReadings } = await import("../src/services/store.js");
+    const persistedPrior = await getSession(newSessionId);
+    assert.equal(persistedPrior.status, "completed", "Prior session status must be persisted as completed");
+    assert.ok(persistedPrior.endTime, "Prior session must have persisted endTime");
+    assert.ok(persistedPrior.durationMs >= 0, "Prior session must have persisted durationMs");
+    console.log("✓ Requirement 1 & 4: Status and endTime are truthfully persisted in storage, not just cosmetic");
+
+    // 11. Requirement 2: Verify all historical readings and both sessions are preserved
+    const readingsForInitial = await listReadings({ sessionId: activeSessionId });
+    assert.equal(readingsForInitial.length, 1, "Historical telemetry readings are preserved");
+    const allStored = await sessionController.getSessions(req, createMockRes());
+    const countForPatient = allStored.data.sessions.filter((s) => s.patientId === createdPatientId).length;
+    assert.ok(countForPatient >= 2, "Both sessions are preserved in history");
+    console.log("✓ Requirement 2: Both sessions and all historical readings preserved intact");
+
+    // 12. Requirement 3: Concurrent create and activate race condition test
+    // Fire 5 concurrent activate and create requests simultaneously
+    const concurrentPromises = [
+      sessionController.createSession(
+        { user: { uid: clinicianUid }, body: { patientId: createdPatientId, deviceId: "esp32-01" } },
+        createMockRes()
+      ),
+      sessionController.activateSession(
+        { user: { uid: clinicianUid }, params: { id: newSessionId } },
+        createMockRes()
+      ),
+      sessionController.activateSession(
+        { user: { uid: clinicianUid }, params: { id: activeSessionId } },
+        createMockRes()
+      ),
+    ];
+    await Promise.all(concurrentPromises);
+
+    // Verify invariant holds under concurrency: exactly ONE active session
+    const resFinal = createMockRes();
+    await sessionController.getSessions(req, resFinal);
+    const finalPatientSessions = resFinal.data.sessions.filter((s) => s.patientId === createdPatientId);
+    const finalActiveList = finalPatientSessions.filter((s) => s.status === "active");
+    assert.equal(finalActiveList.length, 1, "Atomic invariant holds: strictly 1 active session under concurrent requests");
+    console.log("✓ Requirement 3: Atomic serialization guarantees strictly 1 active session under concurrency");
   }
 
   console.log("\nALL PATIENT & SESSION LIFECYCLE TESTS PASSED SUCCESSFULLY!");

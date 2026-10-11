@@ -34,6 +34,21 @@ export default function Sessions() {
     }
   }
 
+  async function activate(id) {
+    setBusy(true);
+    setError("");
+    try {
+      await api.activateSession(id);
+      selectSession(id);
+      await refreshSessions();
+      await open(id);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function open(id) {
     try {
       const data = await api.session(id);
@@ -129,19 +144,23 @@ export default function Sessions() {
                   <div className="flex items-center gap-2">
                     {isActive ? (
                       <>
+                        {isSelected ? (
+                          <span className="text-xs font-semibold px-3 py-1 rounded-full bg-terracotta text-white shadow-sm">
+                            Live Active
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => activate(s.id)}
+                            className="text-xs font-semibold px-3 py-1 rounded-full bg-stone-100 hover:bg-stone-200 text-stone-700 transition"
+                          >
+                            Make Active
+                          </button>
+                        )}
                         <button
                           type="button"
-                          onClick={() => selectSession(s.id)}
-                          className={`text-xs font-semibold px-3 py-1 rounded-full transition ${
-                            isSelected
-                              ? "bg-terracotta text-white"
-                              : "bg-stone-100 hover:bg-stone-200 text-stone-700"
-                          }`}
-                        >
-                          {isSelected ? "Live Active" : "Activate"}
-                        </button>
-                        <button
-                          type="button"
+                          disabled={busy}
                           onClick={() => promptEnd(s.id)}
                           className="text-xs font-semibold px-3 py-1 rounded-full bg-rose-100 text-rose-800 hover:bg-rose-200 transition"
                         >
@@ -166,6 +185,14 @@ export default function Sessions() {
                           }`}
                         >
                           {isSelected ? "Viewing" : "Review"}
+                        </button>
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() => activate(s.id)}
+                          className="text-xs font-medium px-2.5 py-1 rounded-full text-stone-600 hover:text-stone-900 hover:bg-stone-200 transition"
+                        >
+                          Resume
                         </button>
                         <span className="text-[11px] font-bold uppercase tracking-wider text-stone-600 bg-stone-100 px-2 py-0.5 rounded-full border border-stone-200">
                           COMPLETED

@@ -73,6 +73,7 @@ export const api = {
   },
   createSession: (body) => request("/api/sessions", { method: "POST", body: JSON.stringify(body) }),
   session: (id) => request(`/api/sessions/${id}`),
+  activateSession: (id) => request(`/api/sessions/${id}/activate`, { method: "POST" }),
   endSession: (id) => request(`/api/sessions/${id}/end`, { method: "POST" }),
   sessionReadings: (id) => request(`/api/sessions/${id}/readings`),
 

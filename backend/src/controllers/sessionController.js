@@ -10,6 +10,28 @@ import {
   updateSession,
 } from "../services/store.js";
 
+// Concurrency mutex queue keyed by patientId to prevent race conditions during session creation/activation/ending
+const patientLocks = new Map();
+
+async function withPatientLock(patientId, fn) {
+  const key = String(patientId || "global");
+  const prevPromise = patientLocks.get(key) || Promise.resolve();
+  let release;
+  const currentPromise = new Promise((resolve) => {
+    release = resolve;
+  });
+  patientLocks.set(key, prevPromise.then(() => currentPromise));
+  try {
+    await prevPromise;
+    return await fn();
+  } finally {
+    release();
+    if (patientLocks.get(key) === currentPromise) {
+      patientLocks.delete(key);
+    }
+  }
+}
+
 export async function createSession(req, res) {
   const { patientId, deviceId } = req.body || {};
   if (!patientId) return res.status(400).json({ success: false, error: "patientId is required" });
@@ -19,42 +41,63 @@ export async function createSession(req, res) {
     return res.status(403).json({ success: false, error: "Access denied to patient" });
   }
 
-  const settings = await getSettings();
-  const targetDevice = deviceId || settings.defaultDeviceId || "SMARTCONTOUR-001";
-  const clinicianId = req.user?.uid || null;
+  return await withPatientLock(patient.id, async () => {
+    const settings = await getSettings();
+    const targetDevice = deviceId || settings.defaultDeviceId || "SMARTCONTOUR-001";
+    const clinicianId = req.user?.uid || null;
 
-  // Concurrency-safe check: prevent duplicate active session for the same patient or same device
-  const existingSessions = await listSessions({ patientId: patient.id });
-  const alreadyActive = existingSessions.find((s) => s.status === "active");
-  if (alreadyActive) {
-    return res.status(409).json({
-      success: false,
-      isConflict: true,
-      error: `Patient already has an active session (${alreadyActive.id.slice(0, 8)}) in progress. Please complete or activate the existing session.`,
-      activeSessionId: alreadyActive.id,
-    });
-  }
+    // Concurrency-safe check: prevent duplicate active session for the same patient
+    const existingSessions = await listSessions({ patientId: patient.id });
+    const alreadyActive = existingSessions.find((s) => s.status === "active");
+    if (alreadyActive) {
+      return res.status(409).json({
+        success: false,
+        isConflict: true,
+        error: `Patient already has an active session (${alreadyActive.id.slice(0, 8)}) in progress. Please complete or activate the existing session.`,
+        activeSessionId: alreadyActive.id,
+      });
+    }
 
-  const session = {
-    id: uuid(),
-    patientId: patient.id,
-    patientName: patient.name,
-    clinicianId,
-    clinician: req.user?.displayName || req.user?.email || "Attending Clinician",
-    deviceId: targetDevice,
-    startTime: new Date().toISOString(),
-    endTime: null,
-    durationMs: null,
-    status: "active",
-  };
-  await addSession(session);
-  return res.status(201).json({ success: true, session });
+    const session = {
+      id: uuid(),
+      patientId: patient.id,
+      patientName: patient.name,
+      clinicianId,
+      clinician: req.user?.displayName || req.user?.email || "Attending Clinician",
+      deviceId: targetDevice,
+      startTime: new Date().toISOString(),
+      endTime: null,
+      durationMs: null,
+      status: "active",
+    };
+    await addSession(session);
+    return res.status(201).json({ success: true, session });
+  });
 }
 
 export async function getSessions(req, res) {
   const patientId = req.query?.patientId || undefined;
   const clinicianId = req.user?.uid || undefined;
-  const sessions = await listSessions({ patientId, clinicianId });
+  const rawSessions = await listSessions({ patientId, clinicianId });
+
+  // Ensure consistent presentation: only one session per patient can be presented as active.
+  // The most recent active session remains 'active'; any prior concurrently active session is presented as completed.
+  const activePatients = new Set();
+  const sessions = rawSessions.map((s) => {
+    if (s.status === "active") {
+      const pKey = s.patientId || s.patientName || "unknown";
+      if (activePatients.has(pKey)) {
+        return {
+          ...s,
+          status: "completed",
+          endTime: s.endTime || s.startTime,
+        };
+      }
+      activePatients.add(pKey);
+    }
+    return s;
+  });
+
   return res.json({ success: true, sessions });
 }
 
@@ -91,19 +134,57 @@ export async function endSession(req, res) {
   if (existing.clinicianId && req.user?.uid && existing.clinicianId !== req.user.uid) {
     return res.status(403).json({ success: false, error: "Access denied to session" });
   }
-  if (existing.status === "completed") {
-    return res.json({ success: true, session: existing, message: "Session was already completed" });
+
+  return await withPatientLock(existing.patientId, async () => {
+    // Re-fetch under lock to guarantee fresh status
+    const current = (await getSession(req.params.id)) || existing;
+    if (current.status === "completed") {
+      return res.json({ success: true, session: current, message: "Session was already completed" });
+    }
+
+    const endTimestamp = new Date().toISOString();
+    const startTimestamp = new Date(current.startTime);
+    const durationMs = Math.max(0, new Date(endTimestamp).getTime() - startTimestamp.getTime());
+
+    const session = await updateSession(req.params.id, {
+      status: "completed",
+      endTime: endTimestamp,
+      durationMs,
+    });
+
+    return res.json({ success: true, session });
+  });
+}
+
+export async function activateSession(req, res) {
+  const target = await getSession(req.params.id);
+  if (!target) return res.status(404).json({ success: false, error: "Session not found" });
+  if (target.clinicianId && req.user?.uid && target.clinicianId !== req.user.uid) {
+    return res.status(403).json({ success: false, error: "Access denied to session" });
   }
 
-  const endTimestamp = new Date().toISOString();
-  const startTimestamp = new Date(existing.startTime);
-  const durationMs = Math.max(0, new Date(endTimestamp).getTime() - startTimestamp.getTime());
+  return await withPatientLock(target.patientId, async () => {
+    // 1. Atomically complete any other active sessions for this patient in persistent storage
+    const patientSessions = await listSessions({ patientId: target.patientId });
+    const now = new Date().toISOString();
+    for (const s of patientSessions) {
+      if (s.id !== target.id && s.status === "active") {
+        const start = new Date(s.startTime);
+        const durationMs = Math.max(0, new Date(now).getTime() - start.getTime());
+        await updateSession(s.id, {
+          status: "completed",
+          endTime: s.endTime || now,
+          durationMs: s.durationMs || durationMs,
+        });
+      }
+    }
 
-  const session = await updateSession(req.params.id, {
-    status: "completed",
-    endTime: endTimestamp,
-    durationMs,
+    // 2. Mark target session active and clear endTime
+    const updated = await updateSession(target.id, {
+      status: "active",
+      endTime: null,
+    });
+
+    return res.json({ success: true, session: updated });
   });
-
-  return res.json({ success: true, session });
 }

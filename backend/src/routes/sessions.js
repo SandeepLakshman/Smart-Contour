@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { createSession, endSession, getSessionById, getSessions } from "../controllers/sessionController.js";
+import { createSession, endSession, activateSession, getSessionById, getSessions } from "../controllers/sessionController.js";
 import { getSessionReadings } from "../controllers/sensorController.js";
 import { requireAuth } from "../controllers/authController.js";
 
@@ -9,5 +9,6 @@ router.get("/", getSessions);
 router.post("/", createSession);
 router.get("/:id", getSessionById);
 router.post("/:id/end", endSession);
+router.post("/:id/activate", activateSession);
 router.get("/:sessionId/readings", getSessionReadings);
 export default router;
