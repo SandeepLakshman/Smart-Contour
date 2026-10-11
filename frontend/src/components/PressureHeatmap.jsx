@@ -124,6 +124,43 @@ export default function PressureHeatmap({
     const w = canvas.width;
     const h = canvas.height;
 
+    const hasAnyReading = ZONES.some((z) => typeof sensors?.[z.key] === "number");
+
+    if (!hasAnyReading) {
+      // Clean clear canvas with neutral socket silhouette when awaiting data
+      ctx.clearRect(0, 0, w, h);
+      ctx.save();
+      // Draw faint neutral socket placeholder
+      ctx.fillStyle = "rgba(58, 41, 33, 0.04)";
+      ctx.strokeStyle = "rgba(58, 41, 33, 0.25)";
+      ctx.lineWidth = 2;
+      ctx.setLineDash([6, 6]);
+      ctx.beginPath();
+      const steps = 120;
+      for (let step = 0; step <= steps; step++) {
+        const progress = step / steps;
+        const ny = 0.08 + progress * (0.92 - 0.08);
+        const halfWidth = ny < 0.25 ? 0.32 - (ny - 0.08) / 0.84 * 0.16 : 0.22;
+        const xPos = (0.5 + halfWidth) * w;
+        const yPos = ny * h;
+        if (step === 0) ctx.moveTo(xPos, yPos);
+        else ctx.lineTo(xPos, yPos);
+      }
+      for (let step = steps; step >= 0; step--) {
+        const progress = step / steps;
+        const ny = 0.08 + progress * (0.92 - 0.08);
+        const halfWidth = ny < 0.25 ? 0.32 - (ny - 0.08) / 0.84 * 0.16 : 0.22;
+        const xPos = (0.5 - halfWidth) * w;
+        const yPos = ny * h;
+        ctx.lineTo(xPos, yPos);
+      }
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      ctx.restore();
+      return;
+    }
+
     const values = ZONES.map((z) => {
       const v = sensors?.[z.key];
       return typeof v === "number" ? Math.max(0, Math.min(1023, v)) : 0;

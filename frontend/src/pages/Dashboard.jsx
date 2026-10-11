@@ -47,7 +47,7 @@ export default function Dashboard() {
             onClick={() => setMode("demo")}
             className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-semibold tracking-wider transition ${
               mode === "demo"
-                ? "bg-terracotta text-ivory shadow-sm"
+                ? "bg-amber-700 text-ivory shadow-sm font-bold"
                 : "text-brown/70 hover:text-brown"
             }`}
           >

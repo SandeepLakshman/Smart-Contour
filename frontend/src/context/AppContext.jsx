@@ -100,11 +100,19 @@ export function AppProvider({ children }) {
       const [hRes, setRes, latRes, recRes, sesRes, patRes, histRes] = await Promise.all([
         api.health().catch(() => null),
         api.settings().catch(() => null),
-        api.latest({ sessionId: selectedSessionId, patientId: selectedPatientId }).catch(() => null),
-        api.recommendations({ sessionId: selectedSessionId, patientId: selectedPatientId }).catch(() => ({ recommendations: [] })),
-        api.sessions({ patientId: selectedPatientId }).catch(() => ({ sessions: [] })),
+        selectedSessionId
+          ? api.latest({ sessionId: selectedSessionId, patientId: selectedPatientId }).catch(() => null)
+          : Promise.resolve(null),
+        selectedSessionId
+          ? api.recommendations({ sessionId: selectedSessionId, patientId: selectedPatientId }).catch(() => ({ recommendations: [] }))
+          : Promise.resolve({ recommendations: [] }),
+        selectedPatientId
+          ? api.sessions({ patientId: selectedPatientId }).catch(() => ({ sessions: [] }))
+          : api.sessions().catch(() => ({ sessions: [] })),
         api.patients().catch(() => ({ patients: [] })),
-        api.history({ sessionId: selectedSessionId, patientId: selectedPatientId, limit: 120 }).catch(() => ({ readings: [] })),
+        selectedSessionId
+          ? api.history({ sessionId: selectedSessionId, patientId: selectedPatientId, limit: 120 }).catch(() => ({ readings: [] }))
+          : Promise.resolve({ readings: [] }),
       ]);
 
       if (hRes) {
@@ -126,11 +134,11 @@ export function AppProvider({ children }) {
       if (recRes?.recommendations) {
         setRecommendations(recRes.recommendations);
       }
-      if (histRes?.readings && histRes.readings.length) {
+      if (histRes?.readings) {
         setHistory(histRes.readings);
       }
-      if (latRes?.reading && mode === "live") {
-        setReading(latRes.reading);
+      if (mode === "live") {
+        setReading(latRes?.reading || null);
       }
       setError("");
     } catch (err) {
@@ -195,7 +203,12 @@ export function AppProvider({ children }) {
 
   // Demo mode generator
   useEffect(() => {
-    if (mode !== "demo") return undefined;
+    if (mode !== "demo") {
+      // Clear demo simulation data when in live mode unless hardware reading arrives
+      setReading(null);
+      setHistory([]);
+      return undefined;
+    }
 
     const timer = setInterval(() => {
       demoRef.current = demoTick(demoRef.current);
