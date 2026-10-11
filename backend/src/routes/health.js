@@ -4,6 +4,7 @@ import { firebaseStatus, pingFirestore } from "../firebase/admin.js";
 import { geminiStatus } from "../ai/gemini.js";
 import { knowledgeStatus } from "../rag/retrieval/retrieve.js";
 import { getDeviceStatus } from "../services/deviceStatus.js";
+import { persistenceMode } from "../services/store.js";
 import { config } from "../config.js";
 
 const router = Router();
@@ -17,8 +18,10 @@ router.get("/", async (_req, res) => {
     service: "SmartContour API",
     firebase: {
       configured: creds.firebase,
-      available: db.available && ping.ok,
+      available: Boolean(db.available && ping.ok),
+      error: ping.error,
     },
+    persistence: persistenceMode(),
     gemini: geminiStatus(),
     knowledge: knowledgeStatus(),
     device: getDeviceStatus(config.defaultDeviceId),

@@ -10,10 +10,10 @@ import { config } from "../config.js";
 export async function readSettings(_req, res) {
   const settings = await getSettings();
   const creds = credentialStatus();
-  const db = firebaseStatus();
   const ping = await pingFirestore();
   const devStatus = getDeviceStatus(settings.defaultDeviceId || config.defaultDeviceId);
   const kStatus = knowledgeStatus();
+  const storeStat = getStoreStatus();
 
   return res.json({
     success: true,
@@ -24,10 +24,17 @@ export async function readSettings(_req, res) {
     systemStatus: {
       esp32: devStatus.connected ? "Connected" : "Disconnected",
       backend: "Connected",
-      firebase: creds.firebase ? (ping.ok ? "Connected" : "In-Memory Fallback") : "Configuration required",
+      firebase: ping.ok ? "Connected" : (creds.firebase ? "Provisioning Required" : "Configuration Required"),
+      firebaseDetails: ping.ok
+        ? "Connected to Cloud Firestore"
+        : (creds.firebase
+            ? "Credentials valid, but Firestore (default) database is not yet created in the Firebase Console. Visit console.firebase.google.com/project/smart-contour/firestore and click 'Create database'."
+            : "Firebase credentials missing from .env"),
       gemini: creds.gemini ? "Configured" : "Configuration required",
       rag: kStatus.ready ? "Ready" : "Configuration required",
-      persistenceMode: persistenceMode() === "firestore" ? "Real Firestore" : "Development In-Memory Fallback",
+      persistenceMode: storeStat.mode === "firestore"
+        ? "Real Cloud Firestore"
+        : "Durable Persistent Store (backend/data/store.json)",
       ragChunks: kStatus.chunks,
       deviceInfo: {
         deviceId: devStatus.deviceId,
@@ -37,12 +44,14 @@ export async function readSettings(_req, res) {
     },
     status: {
       firebaseConfigured: creds.firebase,
-      firebaseAvailable: db.available && ping.ok,
-      persistence: persistenceMode(),
+      firebaseAvailable: ping.ok,
+      firebaseError: ping.error,
+      persistence: storeStat.mode,
       geminiConfigured: geminiStatus().configured,
       knowledge: kStatus,
       websocketClients: clientCount(),
       primaryDevice: devStatus,
+      store: storeStat,
     },
   });
 }

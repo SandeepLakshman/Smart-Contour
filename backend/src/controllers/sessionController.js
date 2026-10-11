@@ -29,8 +29,9 @@ export async function createSession(req, res) {
   return res.status(201).json({ success: true, session });
 }
 
-export async function getSessions(_req, res) {
-  const sessions = await listSessions();
+export async function getSessions(req, res) {
+  const patientId = req.query?.patientId || undefined;
+  const sessions = await listSessions({ patientId });
   return res.json({ success: true, sessions });
 }
 

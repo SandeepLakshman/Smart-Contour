@@ -7,6 +7,7 @@ import {
   addReading,
   addRecommendations,
   getActiveSessionForDevice,
+  getSession,
   getSettings,
   latestReading,
   listReadings,
@@ -14,7 +15,7 @@ import {
 
 export async function ingestSensorData(req, res) {
   try {
-    const { deviceId, timestamp, sensors, sessionId } = req.body || {};
+    const { deviceId, timestamp, sensors, sessionId, patientId } = req.body || {};
     if (!deviceId || typeof deviceId !== "string") {
       return res.status(400).json({ success: false, error: "deviceId is required" });
     }
@@ -26,13 +27,14 @@ export async function ingestSensorData(req, res) {
     const previous = await latestReading();
     const analyzed = analyzeSensors(sensors, settings.thresholds, previous);
     const session = sessionId
-      ? { id: sessionId }
-      : await getActiveSessionForDevice(deviceId);
+      ? await getSession(sessionId)
+      : await getActiveSessionForDevice(deviceId, patientId);
 
     const reading = {
       id: uuid(),
       deviceId,
       sessionId: session?.id || null,
+      patientId: session?.patientId || null,
       timestamp: timestamp ?? Date.now(),
       serverTimestamp: new Date().toISOString(),
       sensors: analyzed.sensors,
@@ -45,12 +47,15 @@ export async function ingestSensorData(req, res) {
     await addReading(reading);
     markDeviceSeen(deviceId, { lastReadingId: reading.id });
 
-    const history = session?.id ? await listReadings({ sessionId: session.id, limit: 200 }) : [reading];
+    const history = session?.id
+      ? await listReadings({ sessionId: session.id, limit: 200 })
+      : [reading];
     const stats = summarizeReadings(history, settings.thresholds);
     const recs = buildRecommendations(analyzed, stats).map((r) => ({
       ...r,
       id: uuid(),
       sessionId: session?.id || null,
+      patientId: session?.patientId || null,
       deviceId,
       readingId: reading.id,
       createdAt: new Date().toISOString(),
@@ -94,9 +99,11 @@ export async function ingestSensorData(req, res) {
   }
 }
 
-export async function getLatestSensorData(_req, res) {
+export async function getLatestSensorData(req, res) {
   try {
-    const reading = await latestReading();
+    const sessionId = req.query?.sessionId || undefined;
+    const patientId = req.query?.patientId || undefined;
+    const reading = await latestReading({ sessionId, patientId });
     if (!reading) return res.json({ success: true, reading: null, live: false });
     return res.json({ success: true, reading, live: true });
   } catch (error) {
@@ -108,7 +115,8 @@ export async function getSensorHistory(req, res) {
   try {
     const limit = Number(req.query.limit) || 100;
     const sessionId = req.query.sessionId || undefined;
-    const readings = await listReadings({ sessionId, limit });
+    const patientId = req.query.patientId || undefined;
+    const readings = await listReadings({ sessionId, patientId, limit });
     return res.json({ success: true, count: readings.length, readings });
   } catch (error) {
     return res.status(500).json({ success: false, error: error.message });

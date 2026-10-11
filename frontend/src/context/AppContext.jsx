@@ -38,26 +38,71 @@ export function AppProvider({ children }) {
   const [history, setHistory] = useState([]);
   const [patients, setPatients] = useState([]);
   const [sessions, setSessions] = useState([]);
-  const [activeSession, setActiveSession] = useState(null);
+  const [selectedPatientId, setSelectedPatientId] = useState(() => {
+    return typeof window !== "undefined" ? localStorage.getItem("smartcontour_patient_id") || "patient-sandeep-01" : "patient-sandeep-01";
+  });
+  const [selectedSessionId, setSelectedSessionId] = useState(() => {
+    return typeof window !== "undefined" ? localStorage.getItem("smartcontour_session_id") || "session-smartcontour-01" : "session-smartcontour-01";
+  });
   const [recommendations, setRecommendations] = useState([]);
   const [error, setError] = useState("");
   const demoRef = useRef(emptySensors());
+
+  // Derive active selected patient & session
+  const selectedPatient = useMemo(() => {
+    return patients.find((p) => p.id === selectedPatientId) || patients[0] || null;
+  }, [patients, selectedPatientId]);
+
+  const selectedSession = useMemo(() => {
+    return sessions.find((s) => s.id === selectedSessionId) || sessions[0] || null;
+  }, [sessions, selectedSessionId]);
 
   // Compute live analysis from current reading
   const analysis = useMemo(() => {
     return analysisFromSensors(reading?.sensors || emptySensors(), thresholds);
   }, [reading, thresholds]);
 
-  // Fetch initial state & polling
+  function selectPatient(patientId) {
+    setSelectedPatientId(patientId);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("smartcontour_patient_id", patientId);
+    }
+    // Find sessions for this patient and auto-select active or latest session
+    const patientSessions = sessions.filter((s) => s.patientId === patientId);
+    if (patientSessions.length) {
+      const active = patientSessions.find((s) => s.status === "active") || patientSessions[0];
+      setSelectedSessionId(active.id);
+      if (typeof window !== "undefined") {
+        localStorage.setItem("smartcontour_session_id", active.id);
+      }
+    }
+  }
+
+  function selectSession(sessionId) {
+    setSelectedSessionId(sessionId);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("smartcontour_session_id", sessionId);
+    }
+    const found = sessions.find((s) => s.id === sessionId);
+    if (found?.patientId && found.patientId !== selectedPatientId) {
+      setSelectedPatientId(found.patientId);
+      if (typeof window !== "undefined") {
+        localStorage.setItem("smartcontour_patient_id", found.patientId);
+      }
+    }
+  }
+
+  // Fetch initial state & polling isolated to selected patient & session
   async function refreshAll() {
     try {
-      const [hRes, setRes, latRes, recRes, sesRes, patRes] = await Promise.all([
+      const [hRes, setRes, latRes, recRes, sesRes, patRes, histRes] = await Promise.all([
         api.health().catch(() => null),
         api.settings().catch(() => null),
-        api.latest().catch(() => null),
-        api.recommendations().catch(() => ({ recommendations: [] })),
-        api.sessions().catch(() => ({ sessions: [] })),
+        api.latest({ sessionId: selectedSessionId, patientId: selectedPatientId }).catch(() => null),
+        api.recommendations({ sessionId: selectedSessionId, patientId: selectedPatientId }).catch(() => ({ recommendations: [] })),
+        api.sessions({ patientId: selectedPatientId }).catch(() => ({ sessions: [] })),
         api.patients().catch(() => ({ patients: [] })),
+        api.history({ sessionId: selectedSessionId, patientId: selectedPatientId, limit: 120 }).catch(() => ({ readings: [] })),
       ]);
 
       if (hRes) {
@@ -75,15 +120,15 @@ export function AppProvider({ children }) {
       }
       if (sesRes?.sessions) {
         setSessions(sesRes.sessions);
-        const currentActive = sesRes.sessions.find((s) => s.status === "active");
-        setActiveSession(currentActive || null);
       }
       if (recRes?.recommendations) {
         setRecommendations(recRes.recommendations);
       }
-      if (latRes?.reading && mode === "live" && !reading) {
+      if (histRes?.readings && histRes.readings.length) {
+        setHistory(histRes.readings);
+      }
+      if (latRes?.reading && mode === "live") {
         setReading(latRes.reading);
-        setHistory((h) => [...h.slice(-180), latRes.reading]);
       }
       setError("");
     } catch (err) {
@@ -96,7 +141,7 @@ export function AppProvider({ children }) {
     refreshAll();
     const timer = setInterval(refreshAll, 6000);
     return () => clearInterval(timer);
-  }, [mode]);
+  }, [mode, selectedPatientId, selectedSessionId]);
 
   // Live WebSocket stream
   useEffect(() => {
@@ -121,10 +166,14 @@ export function AppProvider({ children }) {
           try {
             const data = JSON.parse(event.data);
             if (data.type === "sensor" && data.reading) {
-              setReading(data.reading);
-              setHistory((h) => [...h.slice(-240), data.reading]);
-              if (data.recommendations?.length) {
-                setRecommendations((prev) => [...data.recommendations, ...prev].slice(0, 50));
+              // Match session isolation: if a specific session is selected, only process matching readings or general live feed
+              const r = data.reading;
+              if (!selectedSessionId || !r.sessionId || r.sessionId === selectedSessionId) {
+                setReading(r);
+                setHistory((h) => [...h.slice(-240), r]);
+                if (data.recommendations?.length) {
+                  setRecommendations((prev) => [...data.recommendations, ...prev].slice(0, 50));
+                }
               }
             }
           } catch {}
@@ -140,7 +189,7 @@ export function AppProvider({ children }) {
       clearTimeout(reconnectTimeout);
       if (ws) ws.close();
     };
-  }, [mode]);
+  }, [mode, selectedSessionId]);
 
   // Demo mode generator
   useEffect(() => {
@@ -151,6 +200,8 @@ export function AppProvider({ children }) {
       const fakeReading = {
         id: "demo-" + Date.now(),
         deviceId: "DEMO-SIM",
+        sessionId: selectedSessionId,
+        patientId: selectedPatientId,
         timestamp: Date.now(),
         serverTimestamp: new Date().toISOString(),
         sensors: { ...demoRef.current },
@@ -161,7 +212,7 @@ export function AppProvider({ children }) {
     }, 400);
 
     return () => clearInterval(timer);
-  }, [mode]);
+  }, [mode, selectedSessionId, selectedPatientId]);
 
   const value = useMemo(
     () => ({
@@ -180,17 +231,24 @@ export function AppProvider({ children }) {
       recommendations,
       patients,
       sessions,
-      activeSession,
-      setActiveSession,
+      selectedPatient,
+      selectedSession,
+      selectedPatientId,
+      selectedSessionId,
+      activeSession: selectedSession,
+      selectPatient,
+      selectSession,
+      setActiveSession: (session) => {
+        if (session?.id) selectSession(session.id);
+      },
       error,
       refreshPatients: async () => {
         const p = await api.patients().catch(() => ({ patients: [] }));
         setPatients(p.patients || []);
       },
       refreshSessions: async () => {
-        const s = await api.sessions().catch(() => ({ sessions: [] }));
+        const s = await api.sessions({ patientId: selectedPatientId }).catch(() => ({ sessions: [] }));
         setSessions(s.sessions || []);
-        setActiveSession(s.sessions?.find((x) => x.status === "active") || null);
       },
       refreshMeta: refreshAll,
     }),
@@ -207,7 +265,10 @@ export function AppProvider({ children }) {
       recommendations,
       patients,
       sessions,
-      activeSession,
+      selectedPatient,
+      selectedSession,
+      selectedPatientId,
+      selectedSessionId,
       error,
     ]
   );

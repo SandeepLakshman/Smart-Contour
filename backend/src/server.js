@@ -11,6 +11,7 @@ import patientsRouter from "./routes/patients.js";
 import sessionsRouter from "./routes/sessions.js";
 import recommendationsRouter from "./routes/recommendations.js";
 import aiRouter from "./routes/ai.js";
+import authRouter from "./routes/auth.js";
 import reportsRouter from "./routes/reports.js";
 import settingsRouter from "./routes/settings.js";
 
@@ -19,6 +20,7 @@ app.use(cors({ origin: "*" }));
 app.use(express.json({ limit: "5mb" }));
 
 app.use("/api/health", healthRouter);
+app.use("/api/auth", authRouter);
 app.use("/api/sensor-data", sensorRouter);
 app.use("/api/patients", patientsRouter);
 app.use("/api/sessions", sessionsRouter);

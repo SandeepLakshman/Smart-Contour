@@ -54,11 +54,11 @@ export function renderPdfBuffer(report) {
     doc.moveDown();
 
     section(doc, "Patient & Clinician information");
-    kv(doc, "Patient ID", report.patient?.id || "patient-sandeep-01");
-    kv(doc, "Name", report.patient?.name || "Sandeep Lakshman");
-    kv(doc, "Age", report.patient?.age ?? 38);
-    kv(doc, "Clinician", "Dr. Priya Sharma · Demo Clinician");
-    kv(doc, "Notes", report.patient?.notes || "Prototype socket contour assessment");
+    kv(doc, "Patient ID", report.patient?.id || "—");
+    kv(doc, "Name", report.patient?.name || "Unassigned Patient");
+    kv(doc, "Age", report.patient?.age != null ? String(report.patient.age) : "—");
+    kv(doc, "Clinician", report.session?.clinician || "Dr. Priya Sharma · Demo Clinician");
+    kv(doc, "Notes", report.patient?.notes || "Fitting session evaluation");
 
     section(doc, "Session & device");
     kv(doc, "Session ID", report.session?.id || "—");

@@ -11,9 +11,14 @@ import {
   FileText,
   Waves,
   UserCheck,
+  LogIn,
+  LogOut,
+  FolderOpen,
 } from "lucide-react";
 import StatusBadge from "../components/StatusBadge";
+import AuthModal from "../components/AuthModal";
 import { useApp } from "../context/AppContext";
+import { useAuth } from "../context/AuthContext";
 
 const links = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard },
@@ -27,7 +32,23 @@ const links = [
 ];
 
 export default function AppLayout() {
-  const { mode, setMode, device, backendOk, live, activeSession, error } = useApp();
+  const {
+    mode,
+    setMode,
+    device,
+    backendOk,
+    live,
+    patients,
+    sessions,
+    selectedPatient,
+    selectedSession,
+    selectedPatientId,
+    selectedSessionId,
+    selectPatient,
+    selectSession,
+    error,
+  } = useApp();
+  const { user, isAuthenticated, logout, showAuthModal, setShowAuthModal } = useAuth();
   const connected = device?.connected && backendOk;
 
   return (
@@ -74,7 +95,7 @@ export default function AppLayout() {
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex items-center justify-between border-b border-brown/10 px-8 py-4 bg-[#F7F1E8]/60 backdrop-blur-md">
+        <header className="flex flex-wrap items-center justify-between gap-4 border-b border-brown/10 px-8 py-4 bg-[#F7F1E8]/60 backdrop-blur-md">
           <div>
             <div className="text-[10px] uppercase tracking-[0.2em] text-terracotta font-bold">
               Clinical Fitting Workspace
@@ -84,6 +105,50 @@ export default function AppLayout() {
             </div>
             <div className="text-[11px] text-stone-500 italic">
               Prototype Engineering Demonstration · Not an Official Medical Record
+            </div>
+          </div>
+
+          {/* Active Patient & Session Context Selectors */}
+          <div className="flex items-center gap-2 bg-white/70 border border-[#3A2921]/15 px-3 py-1.5 rounded-2xl shadow-sm text-xs">
+            <FolderOpen className="h-4 w-4 text-terracotta shrink-0" />
+            <div className="flex items-center gap-1.5">
+              <span className="text-[10px] uppercase font-bold text-stone-400">Patient:</span>
+              <select
+                aria-label="Select active patient"
+                value={selectedPatientId || ""}
+                onChange={(e) => selectPatient(e.target.value)}
+                className="bg-transparent font-semibold text-deep focus:outline-none cursor-pointer"
+              >
+                {patients.length ? (
+                  patients.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))
+                ) : (
+                  <option value="patient-sandeep-01">Sandeep Lakshman</option>
+                )}
+              </select>
+            </div>
+            <span className="text-stone-300">|</span>
+            <div className="flex items-center gap-1.5">
+              <span className="text-[10px] uppercase font-bold text-stone-400">Session:</span>
+              <select
+                aria-label="Select active session"
+                value={selectedSessionId || ""}
+                onChange={(e) => selectSession(e.target.value)}
+                className="bg-transparent font-semibold text-deep focus:outline-none cursor-pointer"
+              >
+                {sessions.length ? (
+                  sessions.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.id.slice(0, 14)} {s.status === "active" ? "(Live)" : "(Done)"}
+                    </option>
+                  ))
+                ) : (
+                  <option value="session-smartcontour-01">Default Session</option>
+                )}
+              </select>
             </div>
           </div>
 
@@ -103,14 +168,39 @@ export default function AppLayout() {
               label={backendOk ? (live ? "Live Stream" : "Waiting Stream") : "Backend Offline"}
             />
 
-            {/* Clinician Identity - Dr. Priya Sharma · Demo Clinician */}
-            <div className="flex items-center gap-2 rounded-full bg-white/80 border border-[#3A2921]/15 px-3.5 py-1.5 shadow-sm">
-              <UserCheck size={16} className="text-terracotta" />
-              <div>
-                <span className="text-xs font-bold text-deep block leading-tight">Dr. Priya Sharma</span>
-                <span className="text-[9px] uppercase tracking-wider text-amber-800 font-bold block">Demo Clinician</span>
+            {/* Clinician Identity & Authentication State */}
+            {isAuthenticated ? (
+              <div className="flex items-center gap-2.5 rounded-full bg-white/90 border border-[#3A2921]/15 px-3 py-1 shadow-sm">
+                <div className="p-1 rounded-full bg-emerald-100 text-emerald-800">
+                  <UserCheck size={14} />
+                </div>
+                <div>
+                  <span className="text-xs font-bold text-deep block leading-tight">
+                    {user?.displayName || "Dr. Priya Sharma"}
+                  </span>
+                  <span className="text-[9px] uppercase tracking-wider text-amber-800 font-bold block">
+                    {user?.role || "Demo Clinician"}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={logout}
+                  title="Sign out of clinician workspace"
+                  className="ml-1 p-1 rounded-full text-stone-400 hover:text-rose-600 hover:bg-rose-50 transition"
+                >
+                  <LogOut size={13} />
+                </button>
               </div>
-            </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setShowAuthModal(true)}
+                className="flex items-center gap-1.5 rounded-full bg-deep hover:bg-[#241914] text-ivory px-3.5 py-1.5 text-xs font-bold tracking-wide transition shadow-sm"
+              >
+                <LogIn size={14} className="text-terracotta" />
+                <span>Clinician Sign In</span>
+              </button>
+            )}
           </div>
         </header>
 
@@ -124,6 +214,8 @@ export default function AppLayout() {
           <Outlet />
         </main>
       </div>
+
+      <AuthModal isOpen={showAuthModal} onClose={() => setShowAuthModal(false)} />
     </div>
   );
 }

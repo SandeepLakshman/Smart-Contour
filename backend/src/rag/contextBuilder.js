@@ -1,9 +1,13 @@
-export function buildRagContext({ question, retrieved, session, analysis, recommendations }) {
+export function buildRagContext({ question, retrieved, session, patient, analysis, recommendations }) {
   const evidence = retrieved.length
     ? retrieved
         .map((item, i) => `[Source ${i + 1}: ${item.source} (Relevance: ${Math.round(item.score * 100)}%)]\n${item.text}`)
         .join("\n\n")
     : "NO_RETRIEVED_DOCUMENTS";
+
+  const patientLine = patient
+    ? `Patient: ${patient.name} (ID: ${patient.id}, Age: ${patient.age ?? "N/A"}) · Session: ${session?.id || "Current Buffer"}`
+    : (session ? `Session: ${session.id}` : "Unassigned Patient Session");
 
   const sensorLines = analysis
     ? Object.values(analysis.analysis || {})
@@ -27,6 +31,9 @@ CRITICAL OPERATING RULES:
 6. Always remember prototype thresholds (0-349 LOW, 350-699 MEDIUM, 700+ HIGH) are engineering test thresholds, NOT clinical diagnostic limits.`,
 
     user: `User Question: "${question}"
+
+=== PATIENT & SESSION CONTEXT ===
+${patientLine}
 
 === CURRENT SENSOR CONTEXT ===
 ${sensorLines}

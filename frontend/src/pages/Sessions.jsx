@@ -4,7 +4,7 @@ import { useApp } from "../context/AppContext";
 import EmptyState from "../components/EmptyState";
 
 export default function Sessions() {
-  const { sessions, patients, refreshSessions, refreshPatients } = useApp();
+  const { sessions, patients, refreshSessions, refreshPatients, selectedSessionId, selectSession } = useApp();
   const [patientId, setPatientId] = useState("");
   const [detail, setDetail] = useState(null);
   const [error, setError] = useState("");
@@ -13,8 +13,11 @@ export default function Sessions() {
     e.preventDefault();
     setError("");
     try {
-      await api.createSession({ patientId });
+      const res = await api.createSession({ patientId });
       await refreshSessions();
+      if (res?.session?.id) {
+        selectSession(res.session.id);
+      }
     } catch (err) {
       setError(err.message);
     }
@@ -56,17 +59,51 @@ export default function Sessions() {
         </form>
         {error && <p className="text-sm text-terracotta">{error}</p>}
         {!sessions.length && <EmptyState title="No sessions" body="Start a session to collect ESP32 readings." />}
-        {sessions.map((s) => (
-          <button key={s.id} type="button" onClick={() => open(s.id)} className="glass w-full rounded-3xl p-5 text-left">
-            <div className="flex justify-between">
-              <div className="font-display text-2xl">{s.patientName}</div>
-              <span className="text-xs uppercase tracking-widest text-terracotta">{s.status}</span>
+        {sessions.map((s) => {
+          const isSelected = selectedSessionId === s.id;
+          return (
+            <div
+              key={s.id}
+              className={`glass w-full rounded-3xl p-5 text-left border transition ${
+                isSelected ? "border-terracotta bg-white/90 shadow-md ring-1 ring-terracotta" : "border-brown/10"
+              }`}
+            >
+              <div className="flex justify-between items-center">
+                <button
+                  type="button"
+                  onClick={() => open(s.id)}
+                  className="font-display text-2xl text-left hover:text-terracotta"
+                >
+                  {s.patientName || "Anonymous Patient"}
+                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => selectSession(s.id)}
+                    className={`text-xs font-semibold px-3 py-1 rounded-full transition ${
+                      isSelected
+                        ? "bg-terracotta text-white"
+                        : "bg-stone-100 hover:bg-stone-200 text-stone-700"
+                    }`}
+                  >
+                    {isSelected ? "Active Session" : "Activate"}
+                  </button>
+                  <span className="text-xs uppercase tracking-widest text-terracotta px-2 py-0.5 rounded bg-amber-50">
+                    {s.status}
+                  </span>
+                </div>
+              </div>
+              <div
+                role="button"
+                tabIndex={0}
+                onClick={() => open(s.id)}
+                className="mt-1 text-sm text-brown/60 cursor-pointer"
+              >
+                {s.deviceId} · {s.id} · {new Date(s.startTime).toLocaleString()}
+              </div>
             </div>
-            <div className="mt-1 text-sm text-brown/60">
-              {s.deviceId} · {s.id} · {new Date(s.startTime).toLocaleString()}
-            </div>
-          </button>
-        ))}
+          );
+        })}
       </div>
       <div className="col-span-5">
         {detail ? (

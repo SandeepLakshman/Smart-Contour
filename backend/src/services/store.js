@@ -1,5 +1,12 @@
-import { getDb, firebaseStatus } from "../firebase/admin.js";
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
+import { getDb, firebaseStatus, isFirestoreVerified } from "../firebase/admin.js";
 import { DEFAULT_THRESHOLDS } from "../analysis/pressureAnalysis.js";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const DATA_DIR = path.resolve(__dirname, "../../data");
+const STORE_FILE = path.join(DATA_DIR, "store.json");
 
 const defaultPatient = {
   id: "patient-sandeep-01",
@@ -21,6 +28,7 @@ const defaultSession = {
   status: "active",
 };
 
+// In-memory cache + persistent backing
 const memory = {
   patients: new Map([[defaultPatient.id, defaultPatient]]),
   sessions: new Map([[defaultSession.id, defaultSession]]),
@@ -33,10 +41,94 @@ const memory = {
   },
 };
 
-function hasDb() {
-  return firebaseStatus().available && Boolean(getDb());
+// Load existing persistent storage from disk on startup
+function loadDurableStore() {
+  try {
+    if (fs.existsSync(STORE_FILE)) {
+      const raw = fs.readFileSync(STORE_FILE, "utf8");
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed.patients)) {
+        parsed.patients.forEach((p) => memory.patients.set(p.id, p));
+      }
+      if (Array.isArray(parsed.sessions)) {
+        parsed.sessions.forEach((s) => memory.sessions.set(s.id, s));
+      }
+      if (Array.isArray(parsed.readings)) {
+        memory.readings = parsed.readings;
+      }
+      if (Array.isArray(parsed.recommendations)) {
+        memory.recommendations = parsed.recommendations;
+      }
+      if (Array.isArray(parsed.reports)) {
+        memory.reports = parsed.reports;
+      }
+      if (parsed.settings) {
+        memory.settings = { ...memory.settings, ...parsed.settings };
+      }
+    }
+  } catch (err) {
+    console.warn("[Store] Could not load store.json, using defaults:", err.message);
+  }
 }
 
+let saveTimer = null;
+function persistToDisk() {
+  if (saveTimer) return;
+  saveTimer = setTimeout(() => {
+    saveTimer = null;
+    try {
+      if (!fs.existsSync(DATA_DIR)) {
+        fs.mkdirSync(DATA_DIR, { recursive: true });
+      }
+      const snapshot = {
+        patients: [...memory.patients.values()],
+        sessions: [...memory.sessions.values()],
+        readings: memory.readings.slice(-1000), // keep latest 1000 readings durable
+        recommendations: memory.recommendations.slice(0, 200),
+        reports: memory.reports.slice(0, 100),
+        settings: memory.settings,
+        savedAt: new Date().toISOString(),
+      };
+      fs.writeFileSync(STORE_FILE, JSON.stringify(snapshot, null, 2), "utf8");
+    } catch (err) {
+      console.warn("[Store] Error writing store.json:", err.message);
+    }
+  }, 200);
+}
+
+// Initialize on module load
+loadDurableStore();
+
+function hasDb() {
+  return isFirestoreVerified() && Boolean(getDb());
+}
+
+export function persistenceMode() {
+  if (hasDb()) return "firestore";
+  if (fs.existsSync(STORE_FILE)) return "local_persistent";
+  return "ephemeral";
+}
+
+export function getStoreStatus() {
+  return {
+    mode: persistenceMode(),
+    firestoreVerified: isFirestoreVerified(),
+    firebaseConfigured: firebaseStatus().configured,
+    firebaseError: firebaseStatus().error,
+    persistentFilePath: STORE_FILE,
+    counts: {
+      patients: memory.patients.size,
+      sessions: memory.sessions.size,
+      readings: memory.readings.length,
+      recommendations: memory.recommendations.length,
+      reports: memory.reports.length,
+    },
+  };
+}
+
+// ==========================================
+// Settings
+// ==========================================
 export async function getSettings() {
   if (hasDb()) {
     try {
@@ -45,9 +137,7 @@ export async function getSettings() {
         new Promise((_, rej) => setTimeout(() => rej(new Error("Timeout")), 2500)),
       ]);
       if (snap.exists) return { ...memory.settings, ...snap.data() };
-    } catch (e) {
-      // Fall through to memory
-    }
+    } catch (e) {}
   }
   return memory.settings;
 }
@@ -55,21 +145,24 @@ export async function getSettings() {
 export async function saveSettings(patch) {
   const next = { ...(await getSettings()), ...patch };
   memory.settings = next;
+  persistToDisk();
   if (hasDb()) {
     try {
       await Promise.race([
         getDb().collection("settings").doc("system").set(next, { merge: true }),
         new Promise((_, rej) => setTimeout(() => rej(new Error("Timeout")), 2500)),
       ]);
-    } catch (e) {
-      // Keep in memory
-    }
+    } catch (e) {}
   }
   return next;
 }
 
+// ==========================================
+// Patients
+// ==========================================
 export async function addPatient(patient) {
   memory.patients.set(patient.id, patient);
+  persistToDisk();
   if (hasDb()) {
     try {
       await Promise.race([
@@ -114,6 +207,7 @@ export async function updatePatient(id, patch) {
   if (!current) return null;
   const next = { ...current, ...patch, updatedAt: new Date().toISOString() };
   memory.patients.set(id, next);
+  persistToDisk();
   if (hasDb()) {
     try {
       await Promise.race([
@@ -125,8 +219,12 @@ export async function updatePatient(id, patch) {
   return next;
 }
 
+// ==========================================
+// Sessions
+// ==========================================
 export async function addSession(session) {
   memory.sessions.set(session.id, session);
+  persistToDisk();
   if (hasDb()) {
     try {
       await Promise.race([
@@ -138,21 +236,28 @@ export async function addSession(session) {
   return session;
 }
 
-export async function listSessions() {
+export async function listSessions({ patientId } = {}) {
+  let allSessions = [];
   if (hasDb()) {
     try {
+      let query = getDb().collection("sessions");
+      if (patientId) query = query.where("patientId", "==", patientId);
       const snap = await Promise.race([
-        getDb().collection("sessions").get(),
+        query.get(),
         new Promise((_, rej) => setTimeout(() => rej(new Error("Timeout")), 2500)),
       ]);
       if (snap && snap.docs) {
-        return snap.docs
-          .map((d) => d.data())
-          .sort((a, b) => String(b.startTime || "").localeCompare(String(a.startTime || "")));
+        allSessions = snap.docs.map((d) => d.data());
       }
     } catch (e) {}
   }
-  return [...memory.sessions.values()].sort((a, b) => String(b.startTime || "").localeCompare(String(a.startTime || "")));
+  if (!allSessions.length) {
+    allSessions = [...memory.sessions.values()];
+    if (patientId) {
+      allSessions = allSessions.filter((s) => s.patientId === patientId);
+    }
+  }
+  return allSessions.sort((a, b) => String(b.startTime || "").localeCompare(String(a.startTime || "")));
 }
 
 export async function getSession(id) {
@@ -173,6 +278,7 @@ export async function updateSession(id, patch) {
   if (!current) return null;
   const next = { ...current, ...patch };
   memory.sessions.set(id, next);
+  persistToDisk();
   if (hasDb()) {
     try {
       await Promise.race([
@@ -184,14 +290,29 @@ export async function updateSession(id, patch) {
   return next;
 }
 
-export async function getActiveSessionForDevice(deviceId) {
-  const sessions = await listSessions();
+export async function getActiveSessionForDevice(deviceId, patientId = null) {
+  const sessions = await listSessions({ patientId });
+  if (patientId) {
+    const match = sessions.find((s) => s.deviceId === deviceId && s.status === "active" && s.patientId === patientId);
+    if (match) return match;
+  }
   return sessions.find((s) => s.deviceId === deviceId && s.status === "active") || null;
 }
 
+export async function getActiveSessionForPatient(patientId) {
+  const sessions = await listSessions({ patientId });
+  return sessions.find((s) => s.status === "active") || null;
+}
+
+// ==========================================
+// Sensor Readings (Patient & Session Isolated)
+// ==========================================
 export async function addReading(reading) {
   memory.readings.push(reading);
-  if (memory.readings.length > 5000) memory.readings.splice(0, memory.readings.length - 4000);
+  if (memory.readings.length > 5000) {
+    memory.readings.splice(0, memory.readings.length - 4000);
+  }
+  persistToDisk();
   if (hasDb()) {
     try {
       await Promise.race([
@@ -203,35 +324,86 @@ export async function addReading(reading) {
   return reading;
 }
 
-export async function latestReading() {
+export async function latestReading({ sessionId, patientId } = {}) {
+  // If patientId is supplied but no sessionId, resolve patient's session IDs
+  let targetSessionIds = null;
+  if (sessionId) {
+    targetSessionIds = new Set([sessionId]);
+  } else if (patientId) {
+    const pSessions = [...memory.sessions.values()].filter((s) => s.patientId === patientId);
+    targetSessionIds = new Set(pSessions.map((s) => s.id));
+  }
+
   if (hasDb()) {
     try {
+      let query = getDb().collection("sensorReadings").orderBy("serverTimestamp", "desc");
+      if (sessionId) {
+        query = query.where("sessionId", "==", sessionId);
+      }
       const snap = await Promise.race([
-        getDb().collection("sensorReadings").orderBy("serverTimestamp", "desc").limit(1).get(),
+        query.limit(1).get(),
         new Promise((_, rej) => setTimeout(() => rej(new Error("Timeout")), 2500)),
       ]);
-      if (snap && !snap.empty) return snap.docs[0].data();
+      if (snap && !snap.empty) {
+        const item = snap.docs[0].data();
+        if (!targetSessionIds || targetSessionIds.has(item.sessionId)) {
+          return item;
+        }
+      }
     } catch (e) {}
   }
+
+  if (targetSessionIds) {
+    for (let i = memory.readings.length - 1; i >= 0; i -= 1) {
+      if (targetSessionIds.has(memory.readings[i].sessionId)) {
+        return memory.readings[i];
+      }
+    }
+    return null;
+  }
+
   return memory.readings.at(-1) || null;
 }
 
-export async function listReadings({ sessionId, limit = 400 } = {}) {
+export async function listReadings({ sessionId, patientId, limit = 400 } = {}) {
+  let targetSessionIds = null;
+  if (sessionId) {
+    targetSessionIds = new Set([sessionId]);
+  } else if (patientId) {
+    const pSessions = [...memory.sessions.values()].filter((s) => s.patientId === patientId);
+    targetSessionIds = new Set(pSessions.map((s) => s.id));
+  }
+
   if (hasDb()) {
     try {
       let query = getDb().collection("sensorReadings").orderBy("serverTimestamp", "desc").limit(limit);
-      if (sessionId) query = getDb().collection("sensorReadings").where("sessionId", "==", sessionId).limit(limit);
+      if (sessionId) {
+        query = getDb().collection("sensorReadings").where("sessionId", "==", sessionId).limit(limit);
+      }
       const snap = await Promise.race([
         query.get(),
         new Promise((_, rej) => setTimeout(() => rej(new Error("Timeout")), 2500)),
       ]);
-      if (snap && snap.docs) return snap.docs.map((d) => d.data()).reverse();
+      if (snap && snap.docs) {
+        let items = snap.docs.map((d) => d.data()).reverse();
+        if (targetSessionIds && !sessionId) {
+          items = items.filter((r) => targetSessionIds.has(r.sessionId));
+        }
+        return items;
+      }
     } catch (e) {}
   }
-  const filtered = sessionId ? memory.readings.filter((r) => r.sessionId === sessionId) : memory.readings;
+
+  let filtered = memory.readings;
+  if (targetSessionIds) {
+    filtered = memory.readings.filter((r) => targetSessionIds.has(r.sessionId));
+  }
   return filtered.slice(-limit);
 }
 
+// ==========================================
+// Recommendations (Patient & Session Isolated)
+// ==========================================
 export async function addRecommendations(items) {
   for (const item of items) {
     memory.recommendations.unshift(item);
@@ -244,10 +416,19 @@ export async function addRecommendations(items) {
       } catch (e) {}
     }
   }
+  persistToDisk();
   return items;
 }
 
-export async function listRecommendations({ sessionId } = {}) {
+export async function listRecommendations({ sessionId, patientId } = {}) {
+  let targetSessionIds = null;
+  if (sessionId) {
+    targetSessionIds = new Set([sessionId]);
+  } else if (patientId) {
+    const pSessions = [...memory.sessions.values()].filter((s) => s.patientId === patientId);
+    targetSessionIds = new Set(pSessions.map((s) => s.id));
+  }
+
   if (hasDb()) {
     try {
       let query = getDb().collection("recommendations").orderBy("createdAt", "desc").limit(80);
@@ -256,16 +437,28 @@ export async function listRecommendations({ sessionId } = {}) {
         query.get(),
         new Promise((_, rej) => setTimeout(() => rej(new Error("Timeout")), 2500)),
       ]);
-      if (snap && snap.docs) return snap.docs.map((d) => d.data());
+      if (snap && snap.docs) {
+        let items = snap.docs.map((d) => d.data());
+        if (targetSessionIds && !sessionId) {
+          items = items.filter((r) => targetSessionIds.has(r.sessionId));
+        }
+        return items;
+      }
     } catch (e) {}
   }
-  return sessionId
-    ? memory.recommendations.filter((r) => r.sessionId === sessionId)
-    : memory.recommendations.slice(0, 80);
+
+  if (targetSessionIds) {
+    return memory.recommendations.filter((r) => targetSessionIds.has(r.sessionId)).slice(0, 80);
+  }
+  return memory.recommendations.slice(0, 80);
 }
 
+// ==========================================
+// Reports (Patient & Session Isolated)
+// ==========================================
 export async function addReport(report) {
   memory.reports.unshift(report);
+  persistToDisk();
   if (hasDb()) {
     try {
       await Promise.race([
@@ -277,17 +470,28 @@ export async function addReport(report) {
   return report;
 }
 
-export async function listReports() {
+export async function listReports({ sessionId, patientId } = {}) {
   if (hasDb()) {
     try {
+      let query = getDb().collection("reports").orderBy("generatedAt", "desc");
+      if (sessionId) query = query.where("session.id", "==", sessionId);
+      if (patientId) query = query.where("patient.id", "==", patientId);
       const snap = await Promise.race([
-        getDb().collection("reports").orderBy("generatedAt", "desc").get(),
+        query.get(),
         new Promise((_, rej) => setTimeout(() => rej(new Error("Timeout")), 2500)),
       ]);
       if (snap && snap.docs) return snap.docs.map((d) => d.data());
     } catch (e) {}
   }
-  return memory.reports;
+
+  let filtered = memory.reports;
+  if (sessionId) {
+    filtered = filtered.filter((r) => r.session?.id === sessionId);
+  }
+  if (patientId) {
+    filtered = filtered.filter((r) => r.patient?.id === patientId);
+  }
+  return filtered;
 }
 
 export async function getReport(id) {
@@ -301,8 +505,4 @@ export async function getReport(id) {
     } catch (e) {}
   }
   return memory.reports.find((r) => r.id === id) || null;
-}
-
-export function persistenceMode() {
-  return hasDb() ? "firestore" : "ephemeral";
 }

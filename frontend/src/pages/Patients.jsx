@@ -4,7 +4,7 @@ import { useApp } from "../context/AppContext";
 import EmptyState from "../components/EmptyState";
 
 export default function Patients() {
-  const { patients, refreshPatients, error, backendOk } = useApp();
+  const { patients, refreshPatients, selectedPatientId, selectPatient, error, backendOk } = useApp();
   const [form, setForm] = useState({ name: "", age: "", notes: "" });
   const [selected, setSelected] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -47,20 +47,45 @@ export default function Patients() {
         {!patients.length ? (
           <EmptyState title="No patients yet" body="Add a patient to start a fitting session." />
         ) : (
-          patients.map((p) => (
-            <button
-              key={p.id}
-              type="button"
-              onClick={() => setSelected(p)}
-              className="glass w-full rounded-3xl p-5 text-left"
-            >
-              <div className="font-display text-2xl">{p.name}</div>
-              <div className="mt-1 text-sm text-brown/60">
-                {p.id} · Age {p.age ?? "—"} · {new Date(p.createdAt).toLocaleString()}
+          patients.map((p) => {
+            const isSelected = selectedPatientId === p.id;
+            return (
+              <div
+                key={p.id}
+                className={`glass w-full rounded-3xl p-5 text-left transition border ${
+                  isSelected ? "border-terracotta bg-white/90 shadow-md ring-1 ring-terracotta" : "border-brown/10"
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <div className="font-display text-2xl">{p.name}</div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => selectPatient(p.id)}
+                      className={`text-xs font-semibold px-3 py-1 rounded-full transition ${
+                        isSelected
+                          ? "bg-terracotta text-white"
+                          : "bg-stone-100 hover:bg-stone-200 text-stone-700"
+                      }`}
+                    >
+                      {isSelected ? "Active Patient" : "Select Patient"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSelected(p)}
+                      className="text-xs text-stone-500 hover:text-stone-800 underline px-1"
+                    >
+                      Edit
+                    </button>
+                  </div>
+                </div>
+                <div className="mt-1 text-sm text-brown/60">
+                  {p.id} · Age {p.age ?? "—"} · {new Date(p.createdAt).toLocaleString()}
+                </div>
+                {p.notes && <p className="mt-2 text-sm">{p.notes}</p>}
               </div>
-              {p.notes && <p className="mt-2 text-sm">{p.notes}</p>}
-            </button>
-          ))
+            );
+          })
         )}
       </div>
       <div className="col-span-5 space-y-4">

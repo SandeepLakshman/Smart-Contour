@@ -17,21 +17,24 @@ import {
 
 export async function generateReport(req, res) {
   try {
-    const { sessionId, includeAi = true } = req.body || {};
+    const { sessionId, patientId, includeAi = true } = req.body || {};
     if (!sessionId) return res.status(400).json({ success: false, error: "sessionId is required" });
     const session = await getSession(sessionId);
     if (!session) return res.status(404).json({ success: false, error: "Session not found" });
-    const patient = await getPatient(session.patientId);
+    const targetPatientId = session.patientId || patientId;
+    const patient = targetPatientId ? await getPatient(targetPatientId) : null;
     const settings = await getSettings();
     const readings = await listReadings({ sessionId, limit: 800 });
-    const latest = readings.at(-1) || (await latestReading());
-    const analyzed = latest ? analyzeSensors(latest.sensors, settings.thresholds) : { analysis: {}, highestPressureZone: null };
-    const stats = summarizeReadings(readings, settings.thresholds);
+    const latest = readings.length ? readings.at(-1) : null;
+    const analyzed = latest
+      ? analyzeSensors(latest.sensors, settings.thresholds)
+      : { analysis: {}, highestPressureZone: null, sensors: {} };
+    const stats = readings.length ? summarizeReadings(readings, settings.thresholds) : null;
     const recommendations = await listRecommendations({ sessionId });
 
     let gemini = null;
     let sources = [];
-    if (includeAi && geminiStatus().configured) {
+    if (includeAi && geminiStatus().configured && latest) {
       const question = "Explain this session's pressure pattern and why cushioning may have been recommended.";
       const retrieved = await retrieve(question, 4);
       const context = buildRagContext({
@@ -62,8 +65,9 @@ export async function generateReport(req, res) {
   }
 }
 
-export async function getReports(_req, res) {
-  const reports = await listReports();
+export async function getReports(req, res) {
+  const { sessionId, patientId } = req.query || {};
+  const reports = await listReports({ sessionId, patientId });
   return res.json({ success: true, reports });
 }
 

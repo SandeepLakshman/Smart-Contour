@@ -22,7 +22,7 @@ const SUGGESTIONS = [
 ];
 
 export default function Assistant() {
-  const { reading, activeSession, thresholds, mode } = useApp();
+  const { reading, activeSession, selectedPatientId, selectedSessionId, thresholds, mode } = useApp();
   const [question, setQuestion] = useState("");
   const [messages, setMessages] = useState([]);
   const [busy, setBusy] = useState(false);
@@ -36,7 +36,8 @@ export default function Assistant() {
 
     try {
       const res = await api.chat({
-        sessionId: activeSession?.sessionId || activeSession?.id,
+        sessionId: selectedSessionId || activeSession?.sessionId || activeSession?.id,
+        patientId: selectedPatientId,
         question: text,
       });
       setMessages((m) => [...m, { role: "assistant", ...res }]);
@@ -71,7 +72,7 @@ export default function Assistant() {
               </p>
             </div>
             <span className="text-[11px] font-semibold uppercase tracking-wider px-2.5 py-1 rounded-full bg-amber-100 text-amber-900 border border-amber-200">
-              Zero-Hallucination Mode
+              Strict Grounded Retrieval Mode
             </span>
           </div>
 

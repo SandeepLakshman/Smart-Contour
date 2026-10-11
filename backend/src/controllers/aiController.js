@@ -3,6 +3,7 @@ import { generateGeminiResponse, geminiStatus, parseAssistantSections } from "..
 import { buildRagContext } from "../rag/contextBuilder.js";
 import { retrieve } from "../rag/retrieval/retrieve.js";
 import {
+  getPatient,
   getSession,
   getSettings,
   latestReading,
@@ -12,7 +13,7 @@ import {
 
 export async function chat(req, res) {
   try {
-    const { sessionId, question } = req.body || {};
+    const { sessionId, patientId, question } = req.body || {};
     if (!question || String(question).trim() === "") {
       return res.status(400).json({ success: false, error: "question is required" });
     }
@@ -25,12 +26,16 @@ export async function chat(req, res) {
 
     const trimmedQuestion = String(question).trim();
     const session = sessionId ? await getSession(sessionId) : null;
+    const targetPatientId = session?.patientId || patientId || null;
+    const patient = targetPatientId ? await getPatient(targetPatientId) : null;
     const settings = await getSettings();
-    const latest = await latestReading();
-    const readings = session ? await listReadings({ sessionId: session.id, limit: 200 }) : latest ? [latest] : [];
+    const latest = await latestReading({ sessionId: session?.id, patientId: targetPatientId });
+    const readings = session
+      ? await listReadings({ sessionId: session.id, limit: 200 })
+      : (targetPatientId ? await listReadings({ patientId: targetPatientId, limit: 200 }) : (latest ? [latest] : []));
     const analyzed = latest ? analyzeSensors(latest.sensors, settings.thresholds) : null;
     const stats = summarizeReadings(readings, settings.thresholds);
-    const recommendations = await listRecommendations({ sessionId: session?.id });
+    const recommendations = await listRecommendations({ sessionId: session?.id, patientId: targetPatientId });
 
     // Step 1: Real document chunk retrieval with semantic vector search
     const retrieved = await retrieve(trimmedQuestion, 4);
@@ -58,6 +63,7 @@ export async function chat(req, res) {
       question: trimmedQuestion,
       retrieved,
       session,
+      patient,
       analysis: analyzed,
       recommendations,
     });
