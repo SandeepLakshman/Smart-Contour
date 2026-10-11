@@ -1,7 +1,9 @@
 import { Router } from "express";
 import { downloadReport, generateReport, getReports, previewReport } from "../controllers/reportController.js";
+import { requireAuth } from "../controllers/authController.js";
 
 const router = Router();
+router.use(requireAuth);
 router.get("/", getReports);
 router.post("/", generateReport);
 router.get("/:id", previewReport);

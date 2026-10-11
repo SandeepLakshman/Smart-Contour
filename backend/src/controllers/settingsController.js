@@ -3,7 +3,7 @@ import { firebaseStatus, pingFirestore } from "../firebase/admin.js";
 import { geminiStatus } from "../ai/gemini.js";
 import { knowledgeStatus } from "../rag/retrieval/retrieve.js";
 import { clientCount } from "../services/realtime.js";
-import { getSettings, persistenceMode, saveSettings } from "../services/store.js";
+import { getSettings, getStoreStatus, persistenceMode, saveSettings } from "../services/store.js";
 import { getDeviceStatus, listDevices } from "../services/deviceStatus.js";
 import { config } from "../config.js";
 

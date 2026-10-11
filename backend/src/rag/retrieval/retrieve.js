@@ -81,7 +81,8 @@ export async function retrieve(query, k = 4) {
   });
 
   // Strict threshold to prevent hallucinated citations when user query is unrelated
-  const threshold = queryEmbedding ? 0.35 : 0.08;
+  // Relevant clinical questions score 0.55 - 0.75+; unrelated non-medical queries score <= 0.45
+  const threshold = queryEmbedding ? 0.50 : 0.12;
   const filtered = scored
     .filter((item) => item.score >= threshold)
     .sort((a, b) => b.score - a.score)

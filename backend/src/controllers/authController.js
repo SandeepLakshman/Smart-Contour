@@ -26,7 +26,14 @@ function hashPassword(password, salt) {
 }
 
 function loadUsers() {
-  const users = new Map([[DEFAULT_USER.email.toLowerCase(), DEFAULT_USER]]);
+  const users = new Map();
+  // Only inject demo clinician if explicitly enabled or in non-production development
+  const isProd = process.env.NODE_ENV === "production";
+  const allowDemo = process.env.ALLOW_DEMO_LOGIN === "true" || !isProd;
+  if (allowDemo) {
+    users.set(DEFAULT_USER.email.toLowerCase(), DEFAULT_USER);
+  }
+
   try {
     if (fs.existsSync(USERS_FILE)) {
       const raw = fs.readFileSync(USERS_FILE, "utf8");
@@ -54,7 +61,7 @@ function saveUsers(usersMap) {
 }
 
 // Minimal, secure signed token implementation
-function createToken(payload) {
+export function createToken(payload) {
   const header = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url");
   const claims = Buffer.from(
     JSON.stringify({

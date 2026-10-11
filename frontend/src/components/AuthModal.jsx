@@ -76,29 +76,31 @@ export default function AuthModal({ isOpen, onClose }) {
           </div>
         )}
 
-        {/* Demo Fast Login Banner */}
-        <div className="mt-4 p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-xs space-y-2">
-          <div className="flex items-center justify-between">
-            <span className="font-bold text-amber-900 flex items-center gap-1.5">
-              <CheckCircle className="h-4 w-4 text-amber-700" />
-              Demo Clinician Account
-            </span>
-            <span className="text-[10px] uppercase font-bold text-amber-800 bg-amber-100 px-2 py-0.5 rounded-full">
-              Quick Access
-            </span>
+        {/* Demo Fast Login Banner (Development / Staging Only) */}
+        {(!import.meta.env.PROD || import.meta.env.VITE_ALLOW_DEMO === "true") && (
+          <div className="mt-4 p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-xs space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="font-bold text-amber-900 flex items-center gap-1.5">
+                <CheckCircle className="h-4 w-4 text-amber-700" />
+                Demo Clinician Account (Development)
+              </span>
+              <span className="text-[10px] uppercase font-bold text-amber-800 bg-amber-100 px-2 py-0.5 rounded-full">
+                Quick Access
+              </span>
+            </div>
+            <p className="text-[11px] text-amber-950/80 leading-relaxed">
+              Instant 1-click access as <strong>Dr. Priya Sharma · Demo Clinician</strong>.
+            </p>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={handleDemoLogin}
+              className="w-full py-2 px-3 rounded-xl bg-amber-800 hover:bg-amber-900 text-ivory font-semibold text-xs transition shadow-sm"
+            >
+              Sign in as Dr. Priya Sharma
+            </button>
           </div>
-          <p className="text-[11px] text-amber-950/80 leading-relaxed">
-            Instant 1-click access as <strong>Dr. Priya Sharma · Demo Clinician</strong>.
-          </p>
-          <button
-            type="button"
-            disabled={busy}
-            onClick={handleDemoLogin}
-            className="w-full py-2 px-3 rounded-xl bg-amber-800 hover:bg-amber-900 text-ivory font-semibold text-xs transition shadow-sm"
-          >
-            Sign in as Dr. Priya Sharma
-          </button>
-        </div>
+        )}
 
         <div className="relative my-5 text-center text-xs text-stone-400">
           <div className="absolute inset-0 flex items-center">

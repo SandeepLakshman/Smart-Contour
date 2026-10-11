@@ -11,14 +11,14 @@ const router = Router();
 
 router.get("/", async (_req, res) => {
   const creds = credentialStatus();
-  const db = firebaseStatus();
   const ping = await pingFirestore();
+  const db = firebaseStatus();
   res.json({
     success: true,
     service: "SmartContour API",
     firebase: {
       configured: creds.firebase,
-      available: Boolean(db.available && ping.ok),
+      available: Boolean(ping.ok),
       error: ping.error,
     },
     persistence: persistenceMode(),
