@@ -181,20 +181,27 @@ export default function PressureHeatmap({
           continue;
         }
 
-        let num = 0;
-        let den = 0;
+        // Calculate independent radial intensity contribution for each sensor zone
+        // This ensures FSR1 and FSR2 display their own localized heat intensities simultaneously
+        let combinedIntensity = 0;
+        let maxZoneIntensity = 0;
+
         ZONES.forEach((z, idx) => {
-          const dx = nx - z.x;
-          const dy = ny - z.y;
-          const d2 = dx * dx + dy * dy * 1.3 + 0.0035; // slightly elliptical weight
-          const wgt = 1 / (d2 * d2); // sharp localized falloff
-          num += wgt * values[idx];
-          den += wgt;
+          const val = values[idx];
+          if (val > 0) {
+            const dx = nx - z.x;
+            const dy = (ny - z.y) * 1.15; // slightly elliptical for socket shape
+            const d2 = dx * dx + dy * dy;
+            // Gaussian localized influence with radius ~0.24
+            const weight = Math.exp(-d2 / 0.016);
+            const intensity = (val / 1000) * weight;
+            if (intensity > maxZoneIntensity) maxZoneIntensity = intensity;
+            combinedIntensity += intensity;
+          }
         });
 
-        const interpolated = den > 0 ? num / den : 0;
-        // Normalize against prototype max scale (1023 raw 10-bit / 12-bit scaled ADC)
-        const normalizedT = Math.max(0, Math.min(1, interpolated / 1000));
+        // Blend peak zone intensity with smooth multi-zone field, clamped to 1.0
+        const normalizedT = Math.max(0, Math.min(1, Math.max(maxZoneIntensity, combinedIntensity * 0.85)));
 
         const rgbStr = heatColor(normalizedT);
         const rgb = rgbStr.match(/\d+/g).map(Number);
