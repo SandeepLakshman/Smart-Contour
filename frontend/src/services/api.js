@@ -111,4 +111,25 @@ export const api = {
   report: (id) => request(`/api/reports/${id}`),
   reportPdfUrl: (id) => `${API}/api/reports/${id}/pdf`,
   downloadUrl: (idOrFilename) => `${API}/api/reports/${idOrFilename}/pdf`,
+  downloadReportPdf: async (id, filename) => {
+    const token = typeof window !== "undefined" ? localStorage.getItem("smartcontour_token") : null;
+    const authHeader = token ? { Authorization: `Bearer ${token}` } : {};
+    const res = await fetch(`${API}/api/reports/${id}/pdf`, {
+      headers: { ...authHeader },
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || "Failed to download PDF report");
+    }
+    const blob = await res.blob();
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename || `smartcontour-report-${id}.pdf`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(url);
+  },
 };
+

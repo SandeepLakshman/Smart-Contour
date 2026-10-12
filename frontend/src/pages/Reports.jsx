@@ -30,6 +30,15 @@ export default function Reports() {
     }
   }, [activeSession]);
 
+  async function downloadReport(reportId, filename) {
+    try {
+      setError("");
+      await api.downloadReportPdf(reportId, filename);
+    } catch (e) {
+      setError(e.message || "Failed to download PDF report");
+    }
+  }
+
   async function generate() {
     if (!effectiveSessionId) {
       setError("Please select or start a fitting session first.");
@@ -41,7 +50,7 @@ export default function Reports() {
       const res = await api.generateReport({ sessionId: effectiveSessionId, includeAi: true });
       if (res.report) {
         setPreview(res.report);
-        window.open(api.reportPdfUrl(res.report.id), "_blank");
+        await api.downloadReportPdf(res.report.id, `smartcontour-report-${res.report.id}.pdf`);
       }
       await load();
     } catch (e) {
@@ -112,15 +121,14 @@ export default function Reports() {
                 Patient: <span className="font-bold">{preview.patient?.name || "Anonymous Patient"}</span> · Device: {preview.session?.deviceId}
               </p>
             </div>
-            <a
-              href={api.reportPdfUrl(preview.id)}
-              target="_blank"
-              rel="noreferrer"
+            <button
+              type="button"
+              onClick={() => downloadReport(preview.id, `smartcontour-report-${preview.id}.pdf`)}
               className="flex items-center gap-1.5 rounded-full bg-terracotta text-white px-4 py-2 text-xs font-bold uppercase tracking-wider hover:bg-terracotta/90 transition shadow-sm"
             >
               <Download className="h-4 w-4" />
               <span>Download PDF</span>
-            </a>
+            </button>
           </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-white/70 p-4 rounded-2xl border border-[#3A2921]/10 text-xs">
@@ -191,15 +199,14 @@ export default function Reports() {
                   >
                     View
                   </button>
-                  <a
-                    href={api.reportPdfUrl(r.id)}
-                    target="_blank"
-                    rel="noreferrer"
+                  <button
+                    type="button"
+                    onClick={() => downloadReport(r.id, `smartcontour-report-${r.id}.pdf`)}
                     className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-[#3A2921] text-ivory text-xs font-semibold hover:bg-deep"
                   >
                     <Download className="h-3.5 w-3.5" />
                     <span>PDF</span>
-                  </a>
+                  </button>
                 </div>
               </div>
             ))}
