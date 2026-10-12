@@ -100,9 +100,13 @@ export function AppProvider({ children }) {
       const [hRes, setRes, latRes, recRes, sesRes, patRes, histRes] = await Promise.all([
         api.health().catch(() => null),
         api.settings().catch(() => null),
-        selectedSessionId
-          ? api.latest({ sessionId: selectedSessionId, patientId: selectedPatientId }).catch(() => null)
-          : Promise.resolve(null),
+        api.latest(selectedSessionId ? { sessionId: selectedSessionId, patientId: selectedPatientId } : undefined)
+          .then((res) => {
+            if (res?.reading) return res;
+            if (selectedSessionId) return api.latest().catch(() => null);
+            return res;
+          })
+          .catch(() => null),
         selectedSessionId
           ? api.recommendations({ sessionId: selectedSessionId, patientId: selectedPatientId }).catch(() => ({ recommendations: [] }))
           : Promise.resolve({ recommendations: [] }),
@@ -137,8 +141,8 @@ export function AppProvider({ children }) {
       if (histRes?.readings) {
         setHistory(histRes.readings);
       }
-      if (mode === "live") {
-        setReading(latRes?.reading || null);
+      if (mode === "live" && latRes?.reading) {
+        setReading(latRes.reading);
       }
       setError("");
     } catch (err) {
