@@ -15,7 +15,7 @@ export default function Dashboard() {
 
   // When ESP32 is disconnected in LIVE MODE, clear stale readings, hotspots and active highlights
   const isLiveOffline = mode === "live" && !esp32Connected;
-  const sensors = isLiveOffline ? {} : (reading?.sensors || {});
+  const sensors = reading?.sensors || {};
   // Hotspot banner only triggers if highest pressure zone is genuinely HIGH (> thresholds.mediumMax)
   const hotspot = isLiveOffline || (analysis.highestPressureZone?.value ?? 0) <= thresholds.mediumMax
     ? null
@@ -135,6 +135,7 @@ export default function Dashboard() {
               onSelect={setSelected}
               live={live}
               history={history}
+              isLiveOffline={isLiveOffline}
             />
           )}
         </section>

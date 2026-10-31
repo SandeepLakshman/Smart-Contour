@@ -76,6 +76,7 @@ export default function PressureHeatmap({
   onSelect,
   live = false,
   history = [],
+  isLiveOffline = false,
 }) {
   const canvasRef = useRef(null);
   const [activeModalZone, setActiveModalZone] = useState(null);
@@ -124,42 +125,75 @@ export default function PressureHeatmap({
     const w = canvas.width;
     const h = canvas.height;
 
-    const hasAnyReading = ZONES.some((z) => typeof sensors?.[z.key] === "number");
+    const hasAnyReading = !isLiveOffline && ZONES.some((z) => typeof sensors?.[z.key] === "number");
+
+    // Always draw the socket shape (neutral fill when offline/no data, heat gradient when live)
+    ctx.clearRect(0, 0, w, h);
 
     if (!hasAnyReading) {
-      // Clean clear canvas with neutral socket silhouette when awaiting data
-      ctx.clearRect(0, 0, w, h);
+      // Soft green cloud fill — same socket shape, no fake readings
+      const img = ctx.createImageData(w, h);
+      const d = img.data;
+      for (let y = 0; y < h; y++) {
+        const ny = y / h;
+        for (let x = 0; x < w; x++) {
+          const nx = x / w;
+          const i = (y * w + x) * 4;
+          if (!insideSocketContour(nx, ny)) { d[i + 3] = 0; continue; }
+          // Gentle radial variation centred on socket for a natural "cloud" look
+          const dx = nx - 0.5;
+          const dy = ny - 0.5;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          const t = Math.max(0, Math.min(0.18, 0.18 - dist * 0.22));
+          const rgbStr = heatColor(t);
+          const rgb = rgbStr.match(/\d+/g).map(Number);
+          d[i] = rgb[0]; d[i + 1] = rgb[1]; d[i + 2] = rgb[2];
+          d[i + 3] = 160; // softer opacity for neutral state
+        }
+      }
+      ctx.putImageData(img, 0, 0);
+
+      // Socket contour outline (solid, matching live style)
       ctx.save();
-      // Draw faint neutral socket placeholder
-      ctx.fillStyle = "rgba(58, 41, 33, 0.04)";
-      ctx.strokeStyle = "rgba(58, 41, 33, 0.25)";
-      ctx.lineWidth = 2;
-      ctx.setLineDash([6, 6]);
+      ctx.strokeStyle = "rgba(58, 41, 33, 0.35)";
+      ctx.lineWidth = 3;
       ctx.beginPath();
       const steps = 120;
       for (let step = 0; step <= steps; step++) {
         const progress = step / steps;
-        const ny = 0.08 + progress * (0.92 - 0.08);
-        const halfWidth = ny < 0.25 ? 0.32 - (ny - 0.08) / 0.84 * 0.16 : 0.22;
-        const xPos = (0.5 + halfWidth) * w;
-        const yPos = ny * h;
-        if (step === 0) ctx.moveTo(xPos, yPos);
-        else ctx.lineTo(xPos, yPos);
+        const ny2 = 0.08 + progress * 0.84;
+        let hw2;
+        if (progress < 0.25) hw2 = 0.32 - progress * 0.16;
+        else if (progress < 0.75) hw2 = 0.28 - (progress - 0.25) * 0.18;
+        else { const ap = (progress - 0.75) / 0.25; hw2 = 0.19 * Math.sqrt(Math.max(0, 1 - ap * ap)); }
+        const px = (0.5 + hw2) * w, py = ny2 * h;
+        if (step === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
       }
       for (let step = steps; step >= 0; step--) {
         const progress = step / steps;
-        const ny = 0.08 + progress * (0.92 - 0.08);
-        const halfWidth = ny < 0.25 ? 0.32 - (ny - 0.08) / 0.84 * 0.16 : 0.22;
-        const xPos = (0.5 - halfWidth) * w;
-        const yPos = ny * h;
-        ctx.lineTo(xPos, yPos);
+        const ny2 = 0.08 + progress * 0.84;
+        let hw2;
+        if (progress < 0.25) hw2 = 0.32 - progress * 0.16;
+        else if (progress < 0.75) hw2 = 0.28 - (progress - 0.25) * 0.18;
+        else { const ap = (progress - 0.75) / 0.25; hw2 = 0.19 * Math.sqrt(Math.max(0, 1 - ap * ap)); }
+        ctx.lineTo((0.5 - hw2) * w, ny2 * h);
       }
       ctx.closePath();
-      ctx.fill();
+      ctx.stroke();
+
+      // Internal guide lines
+      ctx.strokeStyle = "rgba(46, 125, 50, 0.18)";
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath();
+      ctx.ellipse(w * 0.5, h * 0.16, w * 0.24, h * 0.06, 0, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.ellipse(w * 0.5, h * 0.52, w * 0.20, h * 0.05, 0, 0, Math.PI * 2);
       ctx.stroke();
       ctx.restore();
-      return;
-    }
+      // Fall through — zone dots are drawn below regardless
+    } else {
 
     const values = ZONES.map((z) => {
       const v = sensors?.[z.key];
@@ -272,17 +306,18 @@ export default function PressureHeatmap({
     ctx.stroke();
     ctx.restore();
 
-    // Draw sensor zone anchors and hotspot beacons
+    } // end heat-gradient else block
+
+    // Draw sensor zone anchors and hotspot beacons (always rendered — neutral when offline)
     ZONES.forEach((z) => {
       const stat = zoneStats[z.key];
       const isSelected = selected === z.key;
-      const isHighest = highestZoneKey === z.key;
       const isHighSeverity = stat.severity === "HIGH";
       const zx = z.x * w;
       const zy = z.y * h;
 
-      // Pulsing hotspot beacon ring ONLY for genuinely HIGH severity zones (> thresholds.mediumMax)
-      const isGenuinelyHigh = stat.severity === "HIGH" && typeof stat.current === "number" && stat.current > thresholds.mediumMax;
+      // Pulsing hotspot beacon ring ONLY for genuinely HIGH severity zones (> thresholds.mediumMax) and NOT offline
+      const isGenuinelyHigh = !isLiveOffline && stat.severity === "HIGH" && typeof stat.current === "number" && stat.current > thresholds.mediumMax;
       if (isGenuinelyHigh) {
         ctx.beginPath();
         ctx.arc(zx, zy, 20, 0, Math.PI * 2);
@@ -305,8 +340,8 @@ export default function PressureHeatmap({
         ctx.stroke();
       }
 
-      // Zone core point
-      const hasValue = typeof stat.current === "number";
+      // Zone core point — gray when offline or no reading, coloured when live
+      const hasValue = !isLiveOffline && typeof stat.current === "number";
       ctx.beginPath();
       ctx.arc(zx, zy, 8, 0, Math.PI * 2);
       ctx.fillStyle = !hasValue
@@ -326,7 +361,7 @@ export default function PressureHeatmap({
       ctx.fillStyle = "#241914";
       ctx.fillText(z.key.toUpperCase(), zx + 12, zy + 4);
     });
-  }, [sensors, thresholds, selected, highestZoneKey]);
+  }, [sensors, thresholds, selected, highestZoneKey, isLiveOffline]);
 
   // Handle click on canvas
   function handleCanvasClick(event) {
@@ -366,14 +401,15 @@ export default function PressureHeatmap({
       {/* Live Badge & Highest Zone Indicator */}
       <div className="w-full flex items-center justify-between px-2 mb-2">
         <div className="flex items-center gap-2">
-          {live ? (
+          {live && Object.values(sensors || {}).some((v) => typeof v === "number") ? (
             <span className="flex items-center gap-1.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300 px-3 py-1 text-xs font-semibold tracking-wider">
               <span className="h-2 w-2 rounded-full bg-emerald-500 animate-ping" />
               LIVE ESP32 FEED
             </span>
           ) : (
-            <span className="rounded-full bg-stone-100 text-stone-600 border border-stone-300 px-3 py-1 text-xs font-medium">
-              Awaiting Stream
+            <span className="flex items-center gap-1.5 rounded-full bg-stone-100 text-stone-500 border border-stone-300 px-3 py-1 text-xs font-medium">
+              <span className="h-2 w-2 rounded-full bg-stone-400" />
+              ESP32 OFFLINE
             </span>
           )}
         </div>
