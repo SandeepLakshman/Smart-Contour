@@ -9,13 +9,23 @@ import { Activity, Play, Radio, Sparkles, Wifi, Server, Database, Clock } from "
 export default function Dashboard() {
   const { reading, analysis, recommendations, thresholds, live, mode, setMode, history, backendOk, device, health } = useApp();
   const [selected, setSelected] = useState("fsr1");
-  const sensors = reading?.sensors || {};
-  const selectedMeta = analysis.analysis?.[selected];
-  const hotspot = analysis.highestPressureZone;
-  const rec = recommendations[0];
 
   const esp32Connected = mode === "demo" || Boolean(device?.connected || (reading && (Date.now() - new Date(reading.serverTimestamp || reading.timestamp).getTime()) < 15000));
   const firebaseOk = health?.firebase?.configured;
+
+  // When ESP32 is disconnected in LIVE MODE, clear stale readings, hotspots and active highlights
+  const isLiveOffline = mode === "live" && !esp32Connected;
+  const sensors = isLiveOffline ? {} : (reading?.sensors || {});
+  // Hotspot banner only triggers if highest pressure zone is genuinely HIGH (> thresholds.mediumMax)
+  const hotspot = isLiveOffline || (analysis.highestPressureZone?.value ?? 0) <= thresholds.mediumMax
+    ? null
+    : analysis.highestPressureZone;
+  const activeHotspots = isLiveOffline ? [] : (analysis.hotspots || []);
+  const activeRecs = isLiveOffline ? [] : recommendations;
+  const rec = activeRecs[0];
+  const selectedMeta = isLiveOffline
+    ? null
+    : (reading?.sensors?.[selected] != null ? analysis.analysis?.[selected] : null);
 
   return (
     <div className="space-y-6">
@@ -137,24 +147,28 @@ export default function Dashboard() {
               Highest Pressure Hotspot
             </div>
             <div className="mt-2 font-display text-4xl font-bold text-deep">
-              {hotspot?.zone || hotspot?.name || "Awaiting Data"}
+              {isLiveOffline ? "Hardware Offline" : hotspot ? (hotspot.zone || hotspot.name) : "All Zones Nominal"}
             </div>
             <div
               className="mt-2 text-3xl font-mono font-bold flex items-baseline gap-2"
-              style={{ color: severityColor(hotspot?.severity) }}
+              style={{ color: severityColor(isLiveOffline ? "STANDBY" : (hotspot?.severity || "LOW")) }}
             >
-              <span>{hotspot?.value ?? "—"}</span>
+              <span>{isLiveOffline ? "N/A" : (hotspot?.value ?? "—")}</span>
               <span className="text-sm uppercase font-sans font-semibold tracking-wider px-2 py-0.5 rounded-full bg-stone-100 border border-stone-200">
-                {hotspot?.severity || "STANDBY"}
+                {isLiveOffline ? "UNAVAILABLE" : (hotspot?.severity || "NOMINAL")}
               </span>
             </div>
             <p className="mt-2 text-xs text-stone-500">
-              Anterior/posterior equilibrium ratio currently active.
+              {isLiveOffline
+                ? "ESP32 disconnected. Real hardware telemetry is currently unavailable."
+                : hotspot
+                ? "Anterior/posterior equilibrium ratio currently active."
+                : "No active hotspot detected. All monitored pressures are within safe operating limits."}
             </p>
           </div>
 
           {/* High Pressure Alert Card */}
-          {analysis.hotspots?.length > 0 ? (
+          {!isLiveOffline && activeHotspots.length > 0 ? (
             <div className="rounded-[2rem] border border-terracotta/40 bg-gradient-to-br from-[#FBECE3] to-[#F5D8C7] p-6 shadow-sm">
               <div className="text-xs font-bold uppercase tracking-[0.16em] text-terracotta flex items-center gap-1.5">
                 <Activity className="h-4 w-4" />
@@ -170,9 +184,13 @@ export default function Dashboard() {
               </div>
             </div>
           ) : (
-            <div className="rounded-[2rem] border border-emerald-200 bg-emerald-50/80 p-5 text-emerald-900 text-xs flex items-center gap-3">
-              <span className="h-2.5 w-2.5 rounded-full bg-emerald-500 shrink-0" />
-              <span>All monitored zones are currently within nominal prototype ranges.</span>
+            <div className="rounded-[2rem] border border-stone-200 bg-white/80 p-5 text-stone-700 text-xs flex items-center gap-3">
+              <span className={`h-2.5 w-2.5 rounded-full shrink-0 ${isLiveOffline ? "bg-stone-400" : "bg-emerald-500"}`} />
+              <span>
+                {isLiveOffline
+                  ? "No active ESP32 connection. Heatmap hotspots and pressure alerts are suppressed."
+                  : "All monitored zones are currently within nominal prototype ranges."}
+              </span>
             </div>
           )}
 
@@ -183,8 +201,10 @@ export default function Dashboard() {
               <span>Soft Insert Recommendation</span>
             </div>
             <p className="mt-3 text-sm leading-relaxed text-deep font-medium">
-              {rec?.message ||
-                "No hotspot above prototype HIGH threshold. Maintain current socket contour and monitor pressure during dynamic gait stance."}
+              {isLiveOffline
+                ? "ESP32 disconnected. Live pressure recommendations require active streaming sensor hardware. Switch to DEMO SIMULATION to preview recommendations."
+                : (rec?.message ||
+                  "No hotspot above prototype HIGH threshold. Maintain current socket contour and monitor pressure during dynamic gait stance.")}
             </p>
             <p className="mt-3 text-[11px] text-brown/60 italic border-t border-[#3A2921]/10 pt-2">
               Prototype fitting-support guidance only. Not a medical diagnostic limit.
@@ -196,14 +216,16 @@ export default function Dashboard() {
       {/* 4 Sensor Zone Telemetry Tiles */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {SENSOR_META.map((meta) => {
-          const item = analysis.analysis?.[meta.key];
-          const prev = history.at(-8)?.sensors?.[meta.key];
+          const rawVal = reading?.sensors?.[meta.key];
+          const hasValidSensorData = !isLiveOffline && rawVal != null && typeof rawVal === "number";
+          const item = hasValidSensorData ? analysis.analysis?.[meta.key] : null;
+          const prev = hasValidSensorData ? history.at(-8)?.sensors?.[meta.key] : null;
           const trendPct =
             item?.value != null && prev
               ? (((item.value - prev) / prev) * 100).toFixed(0)
               : item?.trendPercent;
           const isSelected = selected === meta.key;
-          const tone = severityTone(item?.severity);
+          const tone = severityTone(hasValidSensorData ? item?.severity : "UNAVAILABLE");
 
           return (
             <button
@@ -222,20 +244,20 @@ export default function Dashboard() {
                 {meta.name}
               </div>
               <div className="mt-1 text-2xl font-bold font-mono" style={{ color: tone.text }}>
-                {item?.value ?? "—"}
+                {hasValidSensorData ? item.value : "N/A"}
               </div>
               <div className="mt-2 flex justify-between items-center text-xs">
                 <span
                   className="font-bold uppercase text-[10px] px-2 py-0.5 rounded-full"
                   style={{ backgroundColor: tone.bg, color: tone.text }}
                 >
-                  {item?.severity || "—"}
+                  {hasValidSensorData ? item.severity : "N/A"}
                 </span>
                 <span className="font-mono text-[11px] text-brown/70 font-semibold">
-                  {trendPct > 0 ? "↑" : trendPct < 0 ? "↓" : "→"} {trendPct || 0}%
+                  {hasValidSensorData ? `${trendPct > 0 ? "↑" : trendPct < 0 ? "↓" : "→"} ${trendPct || 0}%` : "—"}
                 </span>
               </div>
-              <MiniSpark history={history} k={meta.key} />
+              <MiniSpark history={hasValidSensorData ? history : []} k={meta.key} />
             </button>
           );
         })}

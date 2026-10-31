@@ -59,10 +59,20 @@ export function AppProvider({ children }) {
     return sessions.find((s) => s.id === selectedSessionId) || null;
   }, [sessions, selectedSessionId]);
 
-  // Compute live analysis from current reading
+  // Device connectivity check
+  const isHardwareConnected = Boolean(
+    device?.connected ||
+      (reading && (Date.now() - new Date(reading.serverTimestamp || reading.timestamp).getTime()) < 15000)
+  );
+  const esp32Connected = mode === "demo" || isHardwareConnected;
+
+  // Compute live analysis from current reading (or empty if offline in live mode)
   const analysis = useMemo(() => {
+    if (mode === "live" && !isHardwareConnected) {
+      return analysisFromSensors(emptySensors(), thresholds);
+    }
     return analysisFromSensors(reading?.sensors || emptySensors(), thresholds);
-  }, [reading, thresholds]);
+  }, [mode, isHardwareConnected, reading, thresholds]);
 
   function selectPatient(patientId) {
     setSelectedPatientId(patientId);
@@ -107,9 +117,13 @@ export function AppProvider({ children }) {
             return res;
           })
           .catch(() => null),
-        selectedSessionId
-          ? api.recommendations({ sessionId: selectedSessionId, patientId: selectedPatientId }).catch(() => ({ recommendations: [] }))
-          : Promise.resolve({ recommendations: [] }),
+        api.recommendations(
+          selectedSessionId
+            ? { sessionId: selectedSessionId, patientId: selectedPatientId }
+            : selectedPatientId
+            ? { patientId: selectedPatientId }
+            : undefined
+        ).catch(() => ({ recommendations: [] })),
         selectedPatientId
           ? api.sessions({ patientId: selectedPatientId }).catch(() => ({ sessions: [] }))
           : api.sessions().catch(() => ({ sessions: [] })),
@@ -242,12 +256,14 @@ export function AppProvider({ children }) {
       live: mode === "live" && (wsOk || Boolean(reading)),
       health,
       device,
+      isHardwareConnected,
+      esp32Connected,
       thresholds,
       setThresholds,
       reading,
       history,
       analysis,
-      recommendations,
+      recommendations: mode === "live" && !isHardwareConnected ? [] : recommendations,
       patients,
       sessions,
       selectedPatient,
@@ -277,6 +293,8 @@ export function AppProvider({ children }) {
       wsOk,
       health,
       device,
+      isHardwareConnected,
+      esp32Connected,
       thresholds,
       reading,
       history,

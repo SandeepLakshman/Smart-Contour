@@ -22,7 +22,7 @@ const SUGGESTIONS = [
 ];
 
 export default function Assistant() {
-  const { reading, activeSession, selectedPatientId, selectedSessionId, thresholds, mode } = useApp();
+  const { reading, activeSession, selectedPatientId, selectedSessionId, thresholds, mode, isHardwareConnected } = useApp();
   const [question, setQuestion] = useState("");
   const [messages, setMessages] = useState([]);
   const [busy, setBusy] = useState(false);
@@ -68,7 +68,7 @@ export default function Assistant() {
                 <h1 className="font-display text-3xl font-bold text-deep">SmartContour True RAG Assistant</h1>
               </div>
               <p className="text-xs text-stone-600 mt-0.5">
-                Grounded document retrieval architecture · Powered by Gemini 3.8 + Local Prosthetic Knowledge Index
+                Grounded document retrieval architecture · Powered by Clinical RAG Engine + Local Prosthetic Knowledge Index
               </p>
             </div>
             <span className="text-[11px] font-semibold uppercase tracking-wider px-2.5 py-1 rounded-full bg-amber-100 text-amber-900 border border-amber-200">
@@ -80,7 +80,7 @@ export default function Assistant() {
           <div className="mt-3 flex items-center justify-between px-3 py-1.5 rounded-xl bg-ivory/80 border border-[#3A2921]/10 text-xs text-[#3A2921]">
             <span className="flex items-center gap-1.5 font-medium">
               <BookOpen className="h-3.5 w-3.5 text-copper" />
-              RAG Pipeline: User Question → Dense Semantic Search → Retrieved Context Chunks → Grounded Gemini Answer
+              RAG Pipeline: User Question → Dense Semantic Search → Retrieved Context Chunks → Grounded Clinical Answer
             </span>
           </div>
 
@@ -235,8 +235,9 @@ export default function Assistant() {
         {/* Live Zones Grid */}
         <div className="space-y-2">
           {SENSOR_META.map((meta) => {
-            const v = reading?.sensors?.[meta.key];
-            const sev = classify(v, thresholds);
+            const isLiveOffline = mode === "live" && !isHardwareConnected;
+            const v = isLiveOffline ? null : reading?.sensors?.[meta.key];
+            const sev = isLiveOffline ? "UNAVAILABLE" : classify(v, thresholds);
             const tone = severityTone(sev);
             return (
               <div
@@ -249,7 +250,7 @@ export default function Assistant() {
                   <p className="text-[10px] text-stone-500">{meta.gpio} · {meta.region}</p>
                 </div>
                 <div className="text-right">
-                  <span className="text-base font-bold font-mono text-deep">{v ?? "—"}</span>
+                  <span className="text-base font-bold font-mono text-deep">{isLiveOffline ? "N/A" : (v ?? "—")}</span>
                   <span
                     className="block text-[10px] font-bold uppercase px-1.5 py-0.2 rounded"
                     style={{ color: tone.text }}

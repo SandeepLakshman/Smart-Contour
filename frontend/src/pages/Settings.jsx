@@ -97,13 +97,13 @@ export default function Settings() {
               hint={sys.persistenceMode || "Firestore Active"}
             />
 
-            {/* Gemini AI */}
+            {/* Clinical AI Engine */}
             <StatusRow
               icon={Sparkles}
-              label="Gemini AI"
+              label="Clinical AI Engine"
               status={sys.gemini || "Configured"}
               isOk={sys.gemini === "Configured"}
-              hint="Model: gemini-3.8-flash (via Backend Proxy)"
+              hint="AI Engine Active (via Backend Proxy)"
             />
 
             {/* RAG Knowledge Base */}

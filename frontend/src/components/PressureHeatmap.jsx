@@ -105,9 +105,9 @@ export default function PressureHeatmap({
     return acc;
   }, {});
 
-  // Find highest pressure zone
+  // Find highest pressure zone ONLY if reading exceeds thresholds.mediumMax (genuinely HIGH)
   let highestZoneKey = null;
-  let highestVal = -1;
+  let highestVal = thresholds.mediumMax || 699;
   ZONES.forEach((z) => {
     const val = zoneStats[z.key]?.current;
     if (typeof val === "number" && val > highestVal) {
@@ -281,16 +281,17 @@ export default function PressureHeatmap({
       const zx = z.x * w;
       const zy = z.y * h;
 
-      // Pulsing hotspot beacon ring for HIGH severity zones
-      if (isHighSeverity || isHighest) {
+      // Pulsing hotspot beacon ring ONLY for genuinely HIGH severity zones (> thresholds.mediumMax)
+      const isGenuinelyHigh = stat.severity === "HIGH" && typeof stat.current === "number" && stat.current > thresholds.mediumMax;
+      if (isGenuinelyHigh) {
         ctx.beginPath();
         ctx.arc(zx, zy, 20, 0, Math.PI * 2);
-        ctx.fillStyle = isHighSeverity ? "rgba(220, 38, 38, 0.25)" : "rgba(245, 158, 11, 0.25)";
+        ctx.fillStyle = "rgba(220, 38, 38, 0.25)";
         ctx.fill();
 
         ctx.beginPath();
         ctx.arc(zx, zy, 14, 0, Math.PI * 2);
-        ctx.strokeStyle = isHighSeverity ? "#DC2626" : "#D97706";
+        ctx.strokeStyle = "#DC2626";
         ctx.lineWidth = 2.5;
         ctx.stroke();
       }
@@ -305,9 +306,16 @@ export default function PressureHeatmap({
       }
 
       // Zone core point
+      const hasValue = typeof stat.current === "number";
       ctx.beginPath();
       ctx.arc(zx, zy, 8, 0, Math.PI * 2);
-      ctx.fillStyle = stat.severity === "HIGH" ? "#B42318" : stat.severity === "MEDIUM" ? "#D97706" : "#2E7D32";
+      ctx.fillStyle = !hasValue
+        ? "#9CA3AF"
+        : stat.severity === "HIGH"
+        ? "#B42318"
+        : stat.severity === "MEDIUM"
+        ? "#D97706"
+        : "#2E7D32";
       ctx.fill();
       ctx.lineWidth = 2;
       ctx.strokeStyle = "#FFFFFF";
@@ -430,10 +438,10 @@ export default function PressureHeatmap({
               </div>
               <div className="flex justify-between items-baseline mt-1">
                 <span className="text-lg font-bold font-mono" style={{ color: tone.text }}>
-                  {stat.current != null ? stat.current : "—"}
+                  {stat.current != null ? stat.current : "N/A"}
                 </span>
                 <span className="text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded" style={{ color: tone.text }}>
-                  {stat.severity}
+                  {stat.current != null ? stat.severity : "N/A"}
                 </span>
               </div>
             </button>
